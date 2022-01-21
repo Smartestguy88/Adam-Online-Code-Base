@@ -655,11 +655,12 @@ do -- Object hierarchy (in do for easy collapse)
         self, requestObj = pm({self, requestObj}, {"table", "asyncobject"}, {"self", "requestObj"}, {fc, cc})
         table.push(self.asyncRequests, requestObj)
       end
-      r.__call = function(self) -- Calls self:handleRequests
-        local fc = "AsyncHandler/__default/__call"
-        self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
-        self:handleRequests(self)
-      end
+      r.typeMapping = {
+        ["<default>"] = "handleDefault",
+        ["<boss server>"] = "handleBossServer",
+        ["<local data store>"] = "handleLocalDataStore",
+        ["client"] = "handleClient",
+      }
       r.handleRequest = function(self, request) -- YEILDS
         local fc = "AsyncHandler/handleRequest"
         self, request = pm({self, request}, {"asynchandler", "asyncobject"})
@@ -667,21 +668,14 @@ do -- Object hierarchy (in do for easy collapse)
         
         -- The meat of async: request according to AsyncObject properties
         local requestType = pt(request.requestType, "!not!nil", "request passed to " .. fc .. " in " .. cc .. " .requestType does not exist (=nil)")
-        assert(AsyncObject.requestTypesIndex[requestType], "request passed to " .. fc .. " in " .. cc .. " .requestType is not a valid type", 2)
+        assert(self.typeMapping[requestType], "request passed to " .. fc .. " in " .. cc .. " .requestType is not a valid type (not contained within mapping)", 2)
         local index = pt(request.index, "!not!nil", "request passed to " .. fc .. " in " .. cc .. " .index does not exist (=nil)")
         local callback = request.callback
         assert(type(callback) == "nil" or type(callback) == "function", "request passed to " .. fc .. " in " .. cc .. " .callback is not type nil or function", 2)
         
-        -- All types can be found in (absolute) AsyncObject.requestTypes
-        if requestType == "<boss server>" then
-          -- um, ..
-          -- *******************************************************************************************************
-        elseif requestType == "<local data store>" then
-          -- Data store request
-          local success, data, erorrMessage
-        elseif requestType == "<client>" then
-          -- Remote function/event
-        end
+        pt(self[typeMapping[requestType]], "function", "requestType passed to " .. fc .. " in " .. cc .. " is not contained within self")
+        self[typeMapping[requestType]](request, index, callback)
+        
         return request -- Helpful
       end
       r.handleRequests = function(self) -- YEILDS
@@ -692,9 +686,13 @@ do -- Object hierarchy (in do for easy collapse)
           self:handleRequest(self.asyncRequests[k])
         end
       end
+      r.__call = function(self) -- Calls self:handleRequests
+        local fc = "AsyncHandler/__default/__call"
+        self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
+        self:handleRequests(self)
+      end
       return r
     end,
-    
   }
   CommunicationChannel = CommunicationObject:New{ -- (Parent:) represents a means of communication
     __type = "communicationchannel",
@@ -708,7 +706,13 @@ do -- Object hierarchy (in do for easy collapse)
       end
       r.__type = "communicationchannel inherited"
       r.__name = "[communication channel :( inherited]"
-      r.channelType = "<default>"
+      
+      -- Must be overridden
+      r.request = nil
+      r.cash = {} -- OVERRIDED
+      r.requestRaw = nil
+      
+
       return r
     end,
   }
@@ -742,7 +746,17 @@ end
 
 cc = "multi-server management" -- Cross server
 
+local bossServerIDChannel = CommunicationChannel:New{
+  __type = "CommunicationChannel",
+  __name = "[CommunicationChannel]",
+}
+MultiServerCommunication = Communication:New{
+  __type = "MultiServerCommunication",
+  __name = "[MultiServerCommunication]",
+  channels = {
 
+  }
+}
 
 --------------------------------------------------------------
 
