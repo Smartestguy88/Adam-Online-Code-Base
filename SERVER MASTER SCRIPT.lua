@@ -32,223 +32,223 @@ end
 
 -- Everything to do with communication
 --[[
-**Everything to do with data stores:**
+  **Everything to do with data stores:**
 
-There is only ONE ROOT data store: '_DataStore::v1.0.0' // Will be updated as versions
-This data store follows a naming convention that goes like this:
+  There is only ONE ROOT data store: '_DataStore::v1.0.0' // Will be updated as versions
+  This data store follows a naming convention that goes like this:
 
-// Note: Naming convention is applied per entry
-// E.g. Player / INDEX / Leaderboards / Gold is written as 'Player/INDEX/Leaderboards/Gold' which is the name of an entry
-<Data Store>:
-  Player /
-    # Everything concerning a player, all info needed by a client or server concerning a client
-    # This should be updated around once/twice a minute in total per player
-    INDEX /
-      # IMPORTANT
-      # Managed by the *BOSS* server
-      Leaderboards /
-        Gold ? Silver ? Metal etc
-        --> LeaderboardObject [PlayerID = Gold ? Silver ? ... ?]
-      Structures /
-        MapPlaced --> [StructGridObject]
-        StructureIndex --> [Structure IDs]
-    Persistent /
-      # All data pertaining to a specific player
-      # Linked through PlayerID<Instance> object (Players.LocalPlayer.UserId)
-      Items  /
-        # All types of items
-        Gold --> Player ID --> ResourceObject
-        Silver "  "
-        Metal  "  "
-        Blueberries
-        e.t.c.
-        # Each entry represents a type of item of a specific player
-        # Each entry contains a custom table/object
-      Communication /
-        Chat --> Player ID --> ChatObject {ChatID: ChatThread}
-        Group -> Player ID --> ChatObject {ChatID: ChatThread}
-        Alliance
-        Random
-        INTERNET??
-        etc
-      Structures /
-        # This section is IMPORTANT as it is an index of all structures a player owns
-        # This section, for any important events checks DataStore/Global/Structure/Index/<Requested ID> as superior
-        # It also allows for history
-        History --> Player ID --> [Structure IDs]
-        Current --> Player ID --> [Structure IDs]
-      Settings /
-        Player ID --> SettingsObject { ... }
-      History /
-        Play Time Leaderboard --> INDEX
-        Player ID --> HistoryObject{ ServerID<Instance> = CustomCacheDataType<table>, etc }
-    Global /
-      # Concerning data that ALL players can see / interact with
-      # This data is EXTREMELY IMPORTANT
-      # Methods will be put into place to ensure that only one server
-      # can edit this data at a time because corruption and/or mis-editing
-      # can lead to DISASTROUS consequences
-      Structures /
-        Structure ID --> StructureObject {parts, partNum} # IMPORTANT
-      Chat INDEX /
-        # This index is used to access raw ChatThread objects which contain the actual data for a chat
-      Internet ???
-    Debug /
-      # Used for communicating debug info from multiple servers: Multi-Server Debugging (below)
-      # See also: Message Channel: 'MultiServerDebugging' and 'MultiServerLog'
-      Server ID<Instance> --> Random Info
-    Admin /
-      # Used for communicating to individual servers specific info from any server
-      # 
-      Server ID<Instance> --> Random Info
-    ServerManagement /
-              # This data store section is available as a record of servers past events, which can be used to retrieve players old data
-              BOSS SERVER ID
-              TOOMANYBOSSES
-              # INDEX will be kept by the boss server as a record of all servers that need to be communicated with
-              INDEX --> [Server ID<Instance>] // Managed by boss server
-              Final Cache --> Server ID<Instance> --> Custom Cache Data Type<table>
+  // Note: Naming convention is applied per entry
+  // E.g. Player / INDEX / Leaderboards / Gold is written as 'Player/INDEX/Leaderboards/Gold' which is the name of an entry
+  <Data Store>:
+    Player /
+      # Everything concerning a player, all info needed by a client or server concerning a client
+      # This should be updated around once/twice a minute in total per player
+      INDEX /
+        # IMPORTANT
+        # Managed by the *BOSS* server
+        Leaderboards /
+          Gold ? Silver ? Metal etc
+          --> LeaderboardObject [PlayerID = Gold ? Silver ? ... ?]
+        Structures /
+          MapPlaced --> [StructGridObject]
+          StructureIndex --> [Structure IDs]
+      Persistent /
+        # All data pertaining to a specific player
+        # Linked through PlayerID<Instance> object (Players.LocalPlayer.UserId)
+        Items  /
+          # All types of items
+          Gold --> Player ID --> ResourceObject
+          Silver "  "
+          Metal  "  "
+          Blueberries
+          e.t.c.
+          # Each entry represents a type of item of a specific player
+          # Each entry contains a custom table/object
+        Communication /
+          Chat --> Player ID --> ChatObject {ChatID: ChatThread}
+          Group -> Player ID --> ChatObject {ChatID: ChatThread}
+          Alliance
+          Random
+          INTERNET??
+          etc
+        Structures /
+          # This section is IMPORTANT as it is an index of all structures a player owns
+          # This section, for any important events checks DataStore/Global/Structure/Index/<Requested ID> as superior
+          # It also allows for history
+          History --> Player ID --> [Structure IDs]
+          Current --> Player ID --> [Structure IDs]
+        Settings /
+          Player ID --> SettingsObject { ... }
+        History /
+          Play Time Leaderboard --> INDEX
+          Player ID --> HistoryObject{ ServerID<Instance> = CustomCacheDataType<table>, etc }
+      Global /
+        # Concerning data that ALL players can see / interact with
+        # This data is EXTREMELY IMPORTANT
+        # Methods will be put into place to ensure that only one server
+        # can edit this data at a time because corruption and/or mis-editing
+        # can lead to DISASTROUS consequences
+        Structures /
+          Structure ID --> StructureObject {parts, partNum} # IMPORTANT
+        Chat INDEX /
+          # This index is used to access raw ChatThread objects which contain the actual data for a chat
+        Internet ???
+      Debug /
+        # Used for communicating debug info from multiple servers: Multi-Server Debugging (below)
+        # See also: Message Channel: 'MultiServerDebugging' and 'MultiServerLog'
+        Server ID<Instance> --> Random Info
+      Admin /
+        # Used for communicating to individual servers specific info from any server
+        # 
+        Server ID<Instance> --> Random Info
+      ServerManagement /
+                # This data store section is available as a record of servers past events, which can be used to retrieve players old data
+                BOSS SERVER ID
+                TOOMANYBOSSES
+                # INDEX will be kept by the boss server as a record of all servers that need to be communicated with
+                INDEX --> [Server ID<Instance>] // Managed by boss server
+                Final Cache --> Server ID<Instance> --> Custom Cache Data Type<table>
 
-To make sure that data is not corrupted, Data Store Service and Messaging Service will be used to communicate between servers
-to decide which one is boss and which ones are plebs
+  To make sure that data is not corrupted, Data Store Service and Messaging Service will be used to communicate between servers
+  to decide which one is boss and which ones are plebs
 
-*Limite of Data Store Service (In seconds, per minute):*
--- Sixe of entry: 1MB (MegaByte)
--- Get: 60 + (numPlayers × 10) per server
--- Set: 60 + (numPlayers × 10) per server
--- Set the same key: [6]
--- Get Keys: 5 + (numPlayers × 2) per server
+  *Limite of Data Store Service (In seconds, per minute):*
+  -- Sixe of entry: 1MB (MegaByte)
+  -- Get: 60 + (numPlayers × 10) per server
+  -- Set: 60 + (numPlayers × 10) per server
+  -- Set the same key: [6]
+  -- Get Keys: 5 + (numPlayers × 2) per server
 
-*Limits of Messaging Server (In number, per minute):*
--- Size of message: 1kB (KiloByte)
--- Send: 150 + (60 × numPlayers) per server
--- Receive: 100 + [50 × numServers] per game
--- Receive per topic: 10 + [20 × numServers] per topic
+  *Limits of Messaging Server (In number, per minute):*
+  -- Size of message: 1kB (KiloByte)
+  -- Send: 150 + (60 × numPlayers) per server
+  -- Receive: 100 + [50 × numServers] per game
+  -- Receive per topic: 10 + [20 × numServers] per topic
 
-*Each PLEB server can (per server):*
--- Set: 10 per minute per player
--- Get: 10 per minute per player
--- Get Keys: 2 per minute per player
--- Send: 60 per minute per player
--- Receive: 50 per minute
--- Receive: 20 per minute per topic
+  *Each PLEB server can (per server):*
+  -- Set: 10 per minute per player
+  -- Get: 10 per minute per player
+  -- Get Keys: 2 per minute per player
+  -- Send: 60 per minute per player
+  -- Receive: 50 per minute
+  -- Receive: 20 per minute per topic
 
-*Each BOSS server can (per *BOSS* server):*
--- Set: 60 per minute
--- Get: 60 per minute
--- Get Keys: 5 per minute
--- Send: 150 per minute
--- Receive: 100 per minute
--- Receive per topic: 10 per minute
+  *Each BOSS server can (per *BOSS* server):*
+  -- Set: 60 per minute
+  -- Get: 60 per minute
+  -- Get Keys: 5 per minute
+  -- Send: 150 per minute
+  -- Receive: 100 per minute
+  -- Receive per topic: 10 per minute
 
-*What this system needs to do:*
--- Allow only 1 BOSS server
--- Allows the BOSS server to handle **MANY** requests
--- Allows INFINITE other servers to submit their requests to alter IMPORTANT info
--- Allows a safe catch if any server, esspecially the boss server, is shut down
--- Allows a safe catch if any server, esspecially the boss server, is shut down WITHOUT WARNING
+  *What this system needs to do:*
+  -- Allow only 1 BOSS server
+  -- Allows the BOSS server to handle **MANY** requests
+  -- Allows INFINITE other servers to submit their requests to alter IMPORTANT info
+  -- Allows a safe catch if any server, esspecially the boss server, is shut down
+  -- Allows a safe catch if any server, esspecially the boss server, is shut down WITHOUT WARNING
 
-The only way a system could be realistically created is if a slight margin of error is accepted:
--- If the boss server, while accessing data, is shut down WITHOUT WARNING the data being accessed may be corrupted
--- It is acceptable to assume that no more than 10 servers will shutdown without warning
--- Assumes 5 second between leaving server and joining new one
+  The only way a system could be realistically created is if a slight margin of error is accepted:
+  -- If the boss server, while accessing data, is shut down WITHOUT WARNING the data being accessed may be corrupted
+  -- It is acceptable to assume that no more than 10 servers will shutdown without warning
+  -- Assumes 5 second between leaving server and joining new one
 
-1.) When a server first joins, it checks DataStore/ServerManagement/BOSS SERVER ID to see if it is empty
-2.) If it is not than the server will now consider that server boss
--- Stop if step 2 is reached :: This server is now a *PLEB*
-3.) If it is than it will save the current time and check TOOMANYBOSSES to see if it is empty or has recorded a later time than saved
-4.) If it is than it will save the current time and its id and wait 11 seconds (enough time for datastore updates to push through for real)
-5.) If after that time this servers ID and time or a time after this saved one is still there AND a boss id is not saved, become a boss yay!
--- Stop if step 5 is reached :: This server is now *BOSS*
-6.) If TOOMANYBOSSES recorded time is after this servers saved time or a boss server is already decided than wait until DataStore/ServerManagement/BOSS SERVER ID is set and use that as boss
--- Stop if step 6 is reached :: This server is now a *PLEB*
+  1.) When a server first joins, it checks DataStore/ServerManagement/BOSS SERVER ID to see if it is empty
+  2.) If it is not than the server will now consider that server boss
+  -- Stop if step 2 is reached :: This server is now a *PLEB*
+  3.) If it is than it will save the current time and check TOOMANYBOSSES to see if it is empty or has recorded a later time than saved
+  4.) If it is than it will save the current time and its id and wait 11 seconds (enough time for datastore updates to push through for real)
+  5.) If after that time this servers ID and time or a time after this saved one is still there AND a boss id is not saved, become a boss yay!
+  -- Stop if step 5 is reached :: This server is now *BOSS*
+  6.) If TOOMANYBOSSES recorded time is after this servers saved time or a boss server is already decided than wait until DataStore/ServerManagement/BOSS SERVER ID is set and use that as boss
+  -- Stop if step 6 is reached :: This server is now a *PLEB*
 
-**Multi-Server Client Model:**
-This game, whatever its current name is, was originally designed to mimick the data model behind Eve Online
-To be more specific, it was intended to have two data models in use:
- > The Roblox Data Model, where data is stored per player and each player has data specific to them
-    This data model is typical across Roblox games, think of an inventory of items which each player has and is unique and persistent to that player
- > The MMO or Eve Data Model, where data is stored per game and each player has data in relation to everybody else
-    This data model is NOT typical of Roblox games, which is one reason I wanted to create such a game: To be the first
+  **Multi-Server Client Model:**
+  This game, whatever its current name is, was originally designed to mimick the data model behind Eve Online
+  To be more specific, it was intended to have two data models in use:
+  > The Roblox Data Model, where data is stored per player and each player has data specific to them
+      This data model is typical across Roblox games, think of an inventory of items which each player has and is unique and persistent to that player
+  > The MMO or Eve Data Model, where data is stored per game and each player has data in relation to everybody else
+      This data model is NOT typical of Roblox games, which is one reason I wanted to create such a game: To be the first
 
-These models are implemented as a SINGLE DATA STORE using Roblox's Data Store Service
-The reason only one data store is used is such that the absolute names of data stores are not required
-This means resetting data, for any reason, is as simple as changing the name of the data store used as the main store and resetting all the servers
-Another reason only one data store is used is such that the cache (temporary memory) of async functions used to interact with the data store is not corrupted when changing any data
-https://developer.roblox.com/en-us/articles/Data-store#caching
-See above site for a justification, the red section/box and the section below it is why
+  These models are implemented as a SINGLE DATA STORE using Roblox's Data Store Service
+  The reason only one data store is used is such that the absolute names of data stores are not required
+  This means resetting data, for any reason, is as simple as changing the name of the data store used as the main store and resetting all the servers
+  Another reason only one data store is used is such that the cache (temporary memory) of async functions used to interact with the data store is not corrupted when changing any data
+  https://developer.roblox.com/en-us/articles/Data-store#caching
+  See above site for a justification, the red section/box and the section below it is why
 
-There are limitations to the Roblox's Data Store Service (as described in the above table), the most obvious being a 4 MB limit to each entry and a time limit on requests
-This time limit is the reaons that I have implemented the idea of a *BOSS* server, which manages IMPORTANT index entries
-INDEX entries are entries that are typically arrays of ID references for the purpose of keeping tabs on a section of datastore that gives meaning to each ID
-Their are currently (time of writing) two main uses for these INDEX entries: leaderboards and a server loading all structures
-A leaderboard is simply a representation of data about a list of players which needs to be in order, and when a server loads in all structures it needs to with as much speed and least network effort render all structures which INDEX type entries solve
-Note: INDEX entries are no different from any other entry except for their data type and how they are treated EXCEPT for this *important* fact:
-They are updated by the *BOSS* server such that the indexes aren't corrupted by many servers attempting to edit the same key many times and
-they are automatically updated when another related entry is editted when it makes sense, for example:
-... Gold --> Player ID --> ResourceObject(...data...)
-Could logically be linked with a leaderboard of players to see who has the highest amount of Gold:
-... INDEX / Leaderboards / Gold
-This means that whenever a player's amount of gold is editted a logical check is performed to see if the player should make it onto the leaderboard, which displays the link between an index and another entry value
+  There are limitations to the Roblox's Data Store Service (as described in the above table), the most obvious being a 4 MB limit to each entry and a time limit on requests
+  This time limit is the reaons that I have implemented the idea of a *BOSS* server, which manages IMPORTANT index entries
+  INDEX entries are entries that are typically arrays of ID references for the purpose of keeping tabs on a section of datastore that gives meaning to each ID
+  Their are currently (time of writing) two main uses for these INDEX entries: leaderboards and a server loading all structures
+  A leaderboard is simply a representation of data about a list of players which needs to be in order, and when a server loads in all structures it needs to with as much speed and least network effort render all structures which INDEX type entries solve
+  Note: INDEX entries are no different from any other entry except for their data type and how they are treated EXCEPT for this *important* fact:
+  They are updated by the *BOSS* server such that the indexes aren't corrupted by many servers attempting to edit the same key many times and
+  they are automatically updated when another related entry is editted when it makes sense, for example:
+  ... Gold --> Player ID --> ResourceObject(...data...)
+  Could logically be linked with a leaderboard of players to see who has the highest amount of Gold:
+  ... INDEX / Leaderboards / Gold
+  This means that whenever a player's amount of gold is editted a logical check is performed to see if the player should make it onto the leaderboard, which displays the link between an index and another entry value
 
-**Multi-Server Debugging:**
-Multi server debugging is achieved through the use of shared Message Service channel named "MultiServerDebugging"
-This is only subscribed to if a script level error occurs, and then a message is pushed to this topic explaining how this occured
-Multi server debugging is also achieve through the use of a shared Message Service channel named "MultiServerLog"
-This is subscribed to by all servers who are undergoing identity crisis and don't know who is boss
-All servers also keep a local record of this info to make it easier to debug
+  **Multi-Server Debugging:**
+  Multi server debugging is achieved through the use of shared Message Service channel named "MultiServerDebugging"
+  This is only subscribed to if a script level error occurs, and then a message is pushed to this topic explaining how this occured
+  Multi server debugging is also achieve through the use of a shared Message Service channel named "MultiServerLog"
+  This is subscribed to by all servers who are undergoing identity crisis and don't know who is boss
+  All servers also keep a local record of this info to make it easier to debug
 
-**In-Server Debugging:**
-In server debugging is done through an admin communicating to the MASTER SERVER SCRIPT while in the offending server
-Servers automaticcally keep an extensive record of all non-multi-server actions that it undertakes to allow for easier debugging
-Only admins, such as myself, can access this data and use the raw functions available to aforementioned admins
-All indeterministic return typed functions (functions that may return a fail in raw or processed action requested) return an IRTF object
+  **In-Server Debugging:**
+  In server debugging is done through an admin communicating to the MASTER SERVER SCRIPT while in the offending server
+  Servers automaticcally keep an extensive record of all non-multi-server actions that it undertakes to allow for easier debugging
+  Only admins, such as myself, can access this data and use the raw functions available to aforementioned admins
+  All indeterministic return typed functions (functions that may return a fail in raw or processed action requested) return an IRTF object
 
-**Server-Client Communication**
-TO REMEMBER: ONLY NUMBERED INDEXES IN TABLES PASSED TO REMOTE FUNCITONS ARE SEEN, see:
-https://developer.roblox.com/en-us/articles/Remote-Functions-and-Events#mixed-tables
+  **Server-Client Communication**
+  TO REMEMBER: ONLY NUMBERED INDEXES IN TABLES PASSED TO REMOTE FUNCITONS ARE SEEN, see:
+  https://developer.roblox.com/en-us/articles/Remote-Functions-and-Events#mixed-tables
 
-]]
+--]]
 
 -- Object Hierarchy
 --[[
-** Object Inheritance **
-Objects all stem from one object, namely Object (or _G["Object"] for absolute reference)
-Object inheritance is, for the sake of simplicity and definite __index references, single parent many children
-As in, one table cannot 'inherit' from multiple parents, although this is most definitely possible
+  ** Object Inheritance **
+  Objects all stem from one object, namely Object (or _G["Object"] for absolute reference)
+  Object inheritance is, for the sake of simplicity and definite __index references, single parent many children
+  As in, one table cannot 'inherit' from multiple parents, although this is most definitely possible
 
-**Ideal Object Hierarchy:**
-The ideal object hierarchy would include:
-Server type object
-Multiserver type object (protocol for accessing data outside this server)
-Client object to deal with client requests
-Communications object to oversee all communications (in and outside of this server)
+  **Ideal Object Hierarchy:**
+  The ideal object hierarchy would include:
+  Server type object
+  Multiserver type object (protocol for accessing data outside this server)
+  Client object to deal with client requests
+  Communications object to oversee all communications (in and outside of this server)
 
-**Actual Object Hierarchy**
-Object:
-  CoreTypes:
-    Async: -- Allows queing of yeilding functions and callbacks
-    Debug: -- Debug functions like printing to console
-    Server: -- Holds all info about a server
-    
+  **Actual Object Hierarchy**
+  Object:
+    CoreTypes:
+      Async: -- Allows queing of yeilding functions and callbacks
+      Debug: -- Debug functions like printing to console
+      Server: -- Holds all info about a server
+      
 --]]
 
 -- Basic formatting guide to this program:
 --[[
 
-This program is split in two major ways:
+  This program is split in two major ways:
 
--> cc :: Code Context, which divides the program into major sections indicated by lines of hyphens '-'
---> mc : Minor Context, which divides the program into minor sections indicated by a space
--> fc :: Function Context, which indicates a function
+  -> cc :: Code Context, which divides the program into major sections indicated by lines of hyphens '-'
+  --> mc : Minor Context, which divides the program into minor sections indicated by a space
+  -> fc :: Function Context, which indicates a function
 
-cc and fc are both variables that can be access to give a rough indication of where in the program you are
-note: fc is local and only accessable in defined functions, where as cc is global and updated per major section absolutely
-note: if the first line after definition is not local fc = .. then that function doens't have an absolute defined fc
+  cc and fc are both variables that can be access to give a rough indication of where in the program you are
+  note: fc is local and only accessable in defined functions, where as cc is global and updated per major section absolutely
+  note: if the first line after definition is not local fc = .. then that function doens't have an absolute defined fc
 
-Major sections, each cc, are demoted by lines of hyphens '-' which conveniently comment themselves out
-Minor sections, each mc is seperated by a space between chunks of code
-mc is NOT a variable, but can be found after the slash '/' in cc
+  Major sections, each cc, are demoted by lines of hyphens '-' which conveniently comment themselves out
+  Minor sections, each mc is seperated by a space between chunks of code
+  mc is NOT a variable, but can be found after the slash '/' in cc
 
 --]]
 
@@ -470,6 +470,14 @@ do -- Global defs (in do for easy collapse)
   
 end
 
+do -- Global reference names
+  Players = game:GetService("Players")
+  ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+  DataStoreService = game:GetService("DataStoreService")
+  StandardDataStore = DataStore:GetDataStore(dataStoreName)
+end
+
 --------------------------------------------------------------
 
 cc = "object hierarchy"
@@ -584,7 +592,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Server/__default"
       self = pt(self, "server", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "table") then
+      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self)
       end
       r.__type = "serverobject inherited"
@@ -599,7 +607,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Communication/__default"
       self = pt(self, "server", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "table") then
+      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self)
       end
       r.__type = "communicationobject inherited"
@@ -626,7 +634,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "AsyncObject/__default"
       self = pt(self, "asyncobject", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "table") then
+      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self)
       end
       r.__type = "asyncobject inherited"
@@ -644,7 +652,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "AsyncHandler/__default"
       self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "table") then
+      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self)
       end
       r.__type = "asynchandler inherited"
@@ -701,17 +709,18 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "CommunicationChannel/__default"
       self = pt(self, "table", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "table") then
+      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self)
       end
       r.__type = "communicationchannel inherited"
       r.__name = "[communication channel :( inherited]"
       
       -- Must be overridden
-      r.request = nil
-      r.cash = {} -- OVERRIDED
-      r.requestRaw = nil
-      
+      r.get = nil
+      r.set = nil
+      r.cash = {} -- OVERRIDE
+      r.rawGet = nil
+      r.rawSet = nil
 
       return r
     end,
@@ -723,7 +732,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Communication/__default"
       self = pt(self, "communication", "self passed to " .. fc .. " in " .. cc .. " not type communication")
       local r = {}
-      if validMetatable(self) and (type(getmetatable(self).__default) == "table") then
+      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self) -- Handle inherited __default
       end
       r.__type = "communication inherited"
@@ -739,6 +748,24 @@ do -- Object hierarchy (in do for easy collapse)
       return r
     end,
   }
+  CashedData = CommunicationObject:New{ 
+    __type = "casheddata",
+    __name = "[cashed data :( inherited]",
+    data = nil, -- Overrided
+    __default = function(self)
+      local fc = "CashedData/__default"
+      self = pt(self, "casheddata", "self passed to " .. fc .. " in " .. cc .. " not type communication")
+      local r = {}
+      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
+        r = getmetatable(self).__default(self) -- Handle inherited __default
+      end
+      r.instinated = os.time()
+
+      r.synced = nil -- Override as per
+      r.data = nil -- OVERRIDE PLEASE
+      return r
+    end
+  }
   
 end
 
@@ -746,11 +773,82 @@ end
 
 cc = "multi-server management" -- Cross server
 
-local bossServerIDChannel = CommunicationChannel:New{
+local cashObj = CashedData:New{
+  __type = "cashobj",
+  __name = "[cashObj :( inherited]",
+}
+local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   __type = "CommunicationChannel",
+  __name = "[LocalDataStore]",
+  reference = StandardDataStore,
+  cash = {},
+  record = {},
+  recordRequest = function(self, type, ...)
+    fc = "localDataStore/recordRequest"
+    self, type, args = pm({self, type, {...} or {}}, {"communicationchannel", "string"}, {"self", "type", "args"}, {cc, fc}, {...})
+    table.insert(self.record, {type = type, time = os.time(), extra = args})
+  end
+  rawGet = function (self, index, callback)
+    fc = "localDataStore/rawGet"
+    self, index, callback = pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc})
+    local success, value, errorMessage = pcall(
+      local a, b, c = self.reference:GetAsync(index)
+      self:recordRequest("get", {a, b, c})
+      return a, b, c
+    )
+    if callback then
+      callback(success, value, errorMessage)
+    end
+    return success, value, errorMessage
+  end,
+  rawSet = function (self, index, value, callback)
+    fc = "localDataStore/rawSet"
+    self, index, value, callback = pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc})
+    local success, errorMessage = pcall(
+      local a, b, c = self.reference:SetAsync(index, value)
+      self:recordRequest("set", {a, b, c, value = value})
+      return a, b, c, value
+    )
+    if callbacks then
+      callback(succes, errorMessage)
+    end
+    return success, errorMessage, value
+  end,
+  get = function(self, index, callback)
+    fc = "localDataStore/get"
+    self, index, callback = pm(pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc}))
+    if self.cash[index] then
+      if callback then
+        callback("CASHED", self.cash[index].data)
+      end
+      return "CASHED", self.cash[index].data
+    else
+      local success, value, errorMessage = self:rawGet(index, callback)
+      if callback then
+        callback(success, value, errorMessage)
+      end
+      return success, value, errorMessage
+    end
+  end,
+  set = function(self, index, value, callback)
+    fc = "localDataStore/set"
+    self, index, callback = pm(pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc}))
+    if self.cash[index] then
+      if callback then
+        callback("CASHED", self.cash[index])
+      end
+      return "CASHED", self.cash[index]
+    else
+      return self:rawGet(index, callback)
+    end
+  end,
+}
+
+local bossServerIDChannel = CommunicationChannel:New{
+  
   __name = "[CommunicationChannel]",
 }
-MultiServerCommunication = Communication:New{
+local MultiServerCommunication = Communication:New{
   __type = "MultiServerCommunication",
   __name = "[MultiServerCommunication]",
   channels = {
