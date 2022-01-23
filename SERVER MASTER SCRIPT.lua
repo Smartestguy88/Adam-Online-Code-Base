@@ -763,6 +763,13 @@ do -- Object hierarchy (in do for easy collapse)
 
       r.synced = nil -- Override as per
       r.data = nil -- OVERRIDE PLEASE
+      r.past = {}
+      r.updateData = function(self, data)
+        fc = "CashedData/__default/updateData"
+        self, data = pm({self, data}, {"casheddata"}, {"self", "data"}, {cc, fc})
+        table.insert(self.past, {data = data, time = os.time()})
+        self.data = data
+      end
       return r
     end
   }
@@ -784,11 +791,11 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   cash = {},
   record = {},
   types = {
-    "set" = Enum.DataStoreRequestType.SetIncrementAsync,
-    "get" = Enum.DataStoreRequestType.GetAsync,
-    "update" = Enum.DataStoreRequestType.UpdateAsync,
-    "GetSorted" = Enum.DataStoreRequestType.GetSortedAsync,
-    "SetIncrementSorted" = enums.DataStoreRequestType.SetIncrementSortedAsync
+    set = Enum.DataStoreRequestType.SetIncrementAsync,
+    get = Enum.DataStoreRequestType.GetAsync,
+    update = Enum.DataStoreRequestType.UpdateAsync,
+    GetSorted = Enum.DataStoreRequestType.GetSortedAsync,
+    SetIncrementSorted = enums.DataStoreRequestType.SetIncrementSortedAsync
   },
   yeildRequest = function(self, type)
     fc = "localDataStore/yeildRequest"
@@ -801,21 +808,25 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
     if getBudget() >= 1 then
       return
     end
-    while getBudget() > 1 then
+    while getBudget() < 5 then
       wait(5) -- Yeild the thread until budget
     end
   end
-  recordRequest = function(self, type, ...)
+  recordRequest = function(self, type, ...) -- Yeilds and cashes
     fc = "localDataStore/recordRequest"
     self, type, args = pm({self, type, {...} or {}}, {"communicationchannel", "string"}, {"self", "type", "args"}, {cc, fc}, {...})
     table.insert(self.record, {type = type, time = os.time(), extra = args})
+    self:yeildRequest(type)
+    if type == self.types.set then
+
+    end
   end
   rawGet = function (self, index, callback)
     fc = "localDataStore/rawGet"
     self, index, callback = pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc})
     local success, value, errorMessage = pcall(
       local a, b, c = self.reference:GetAsync(index)
-      self:recordRequest("get", {a, b, c})
+      self:recordRequest(self.types.get, {a, b, c})
       return a, b, c
     )
     if callback then
@@ -828,7 +839,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
     self, index, value, callback = pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc})
     local success, errorMessage = pcall(
       local a, b, c = self.reference:SetAsync(index, value)
-      self:recordRequest("set", {a, b, c, value = value})
+      self:recordRequest(self.types.set, {a, b, c, value = value})
       return a, b, c, value
     )
     if callbacks then
@@ -855,14 +866,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   set = function(self, index, value, callback)
     fc = "localDataStore/set"
     self, index, callback = pm(pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc}))
-    if self.cash[index] then
-      if callback then
-        callback("CASHED", self.cash[index])
-      end
-      return "CASHED", self.cash[index]
-    else
-      return self:rawGet(index, callback)
-    end
+    
   end,
 }
 
