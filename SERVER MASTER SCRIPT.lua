@@ -783,10 +783,27 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   reference = StandardDataStore,
   cash = {},
   record = {},
+  types = {
+    "set" = Enum.DataStoreRequestType.SetIncrementAsync,
+    "get" = Enum.DataStoreRequestType.GetAsync,
+    "update" = Enum.DataStoreRequestType.UpdateAsync,
+    "GetSorted" = Enum.DataStoreRequestType.GetSortedAsync,
+    "SetIncrementSorted" = enums.DataStoreRequestType.SetIncrementSortedAsync
+  },
   yeildRequest = function(self, type)
     fc = "localDataStore/yeildRequest"
-    self, type = pm({self, type}, {"communicationchannel", "string"}, {"self", "type"}, {fc, cc})
-    
+    self, type = pm({self, type}, {"communicationchannel"}, {"self", "type"}, {fc, cc})
+    local getBudget = function() 
+      local suc, result = pcall(function return DataStoreService:GetRequestBudgetForRequestType(type) end)
+      assert(suc, "Manually caught error in " .. cc .. " in " .. fc .. " while attempting to read budget (most likely bad type param): " .. result)  
+    end
+    -- Manage how many requests go through data store service
+    if getBudget() >= 1 then
+      return
+    end
+    while getBudget() > 1 then
+      wait(5) -- Yeild the thread until budget
+    end
   end
   recordRequest = function(self, type, ...)
     fc = "localDataStore/recordRequest"
