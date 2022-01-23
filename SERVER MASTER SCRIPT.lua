@@ -783,6 +783,11 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   reference = StandardDataStore,
   cash = {},
   record = {},
+  yeildRequest = function(self, type)
+    fc = "localDataStore/yeildRequest"
+    self, type = pm({self, type}, {"communicationchannel", "string"}, {"self", "type"}, {fc, cc})
+    
+  end
   recordRequest = function(self, type, ...)
     fc = "localDataStore/recordRequest"
     self, type, args = pm({self, type, {...} or {}}, {"communicationchannel", "string"}, {"self", "type", "args"}, {cc, fc}, {...})
