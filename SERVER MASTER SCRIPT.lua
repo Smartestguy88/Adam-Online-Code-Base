@@ -503,7 +503,7 @@ do -- Global reference names
   ReplicatedStorage = game:GetService("ReplicatedStorage")
 
   DataStoreService = game:GetService("DataStoreService")
-  StandardDataStore = DataStore:GetDataStore(dataStoreName)
+  StandardDataStore = DataStoreService:GetDataStore(dataStoreName)
 end
 
 --------------------------------------------------------------
@@ -561,7 +561,7 @@ do -- Object hierarchy (in do for easy collapse)
     end,
     New = function(self, ...) -- One intended arg: Object constructor used Object:New{abc = 123}
       local fc = "Object/New"
-      local self = pt(self, "table", "self passed to New in Object is not type table ??" .. "; In: " .. cc .. "/" .. fc)
+      local self, sig = pt(self, "table", "self passed to New in Object is not type table ??" .. "; In: " .. cc .. "/" .. fc)
       local default = pt(self.__default, "function", "__default contained in passed self is not type function (maybe nil)" .. "; In: " .. cc .. "/" .. fc)
       local default = default(self)
       -- Time of creation calculated here (if __default() is applicable to that nature)
@@ -570,7 +570,7 @@ do -- Object hierarchy (in do for easy collapse)
       local o = args[1] or default -- Contains default creation property guarenteed, assert below for debugging
       pt(o, "table", "For some reason o is not a table ??" .. "; In: " .. cc .. "/" .. fc, 1)
       -- assert(o["creation"]) -- (Absolute) debugging :| should remove if ability to override Creation() is possible/allowed
-      local mt = self-- Must have __index pointing to self (next line, implied)
+      local mt = self -- Must have __index pointing to self (next line, implied)
       -- self.__index = self -- Unnecessary but implied/assumed (done absolute below Object definition)
       -- Below for loop copies from the metatable of mt to mt such that o's metatable contains the correct metamethods (__index useless because rawget in lua source code)
       if validMetatable(mt) then -- If mt has a valid metatable copy from it to mt itself
@@ -586,6 +586,13 @@ do -- Object hierarchy (in do for easy collapse)
       print(tostring(self.__name) .. " creating :New() object with name " .. tostring(o.__name))
       self:log{"function", fc, cc}
       return o -- o will now reference Object (or self if this param is inherited/changed) in __index
+      -- A question ANSWERED by me:
+      -- Say a parent object had a property that was 'static', as in it was defined by it as was UNIQUE to that object and NOT its children
+      -- For example, time of instination. Does a child of that parent object inherit a reference to that same unique field and so
+      -- when updating its own unique version update the parents field instead?
+      -- ANSWER: NOOOO
+      -- Retrieving using __index will RETRIEVE the parent but setting any objects properties will make that property UNIQUE to ONLY that child
+      -- Which means that the 'reference' to the property is only for retrieving, not updating
     end,
 
     -- Below are functions used as part of the Objects metatable (because Object considered non-static it has no metatable)
@@ -692,7 +699,7 @@ do -- Object hierarchy (in do for easy collapse)
         self:log{"function", fc, cc, sig}
         table.push(self.asyncRequests, requestObj)
       end
-      r.typeMapping = {
+      r.typeMapping = { -- Maps preset type names (e.g. <client>) to the ABSOLUTE FUNCTION NAME e.g. handleClient  > 
         ["<default>"] = "handleDefault",
         ["<boss server>"] = "handleBossServer",
         ["<local data store>"] = "handleLocalDataStore",
@@ -710,8 +717,8 @@ do -- Object hierarchy (in do for easy collapse)
         local callback = request.callback
         assert(type(callback) == "nil" or type(callback) == "function", "request passed to " .. fc .. " in " .. cc .. " .callback is not type nil or function", 2)
         
-        pt(self[typeMapping[requestType]], "function", "requestType passed to " .. fc .. " in " .. cc .. " is not contained within self")
-        self[typeMapping[requestType]](request, index, callback)
+        pt(self[self.typeMapping[requestType]], "function", "requestType passed to " .. fc .. " in " .. cc .. " is not contained within self")
+        self[self.typeMapping[requestType]](request, index, callback)
         
         return request -- Helpful
       end
@@ -807,9 +814,9 @@ do -- Object hierarchy (in do for easy collapse)
       r.data = nil -- OVERRIDE PLEASE {}
       r.past = {}
       r.recorded = {} -- Used for extra recorded actions in CASH OBJECT
-      r.updateData = function(self, data)
+      r.updateData = function(self, data, raw)
         fc = "CashedData/__default/updateData"
-        self, data, sig = pm({self, data}, {"casheddata"}, {"self", "data"}, {cc, fc})
+        self, data, raw, sig = pm({self, data, raw or false}, {"casheddata", "!not!nil", "boolean"}, {"self", "data", "raw"}, {cc, fc})
         self:log{"function", fc, cc, sig}
         table.insert(self.past, {data = data, timeOfUpdate = os.time(), __type = "casheddata/past"})
         self.data = data
@@ -862,7 +869,7 @@ do -- Object hierarchy (in do for easy collapse)
         self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
         self:log{"function", fc, cc, sig}
         for k, v in pairs(self.perFrame) do
-          local success, _ = pcall(return v()) -- Attempt to call functions/tables with __call
+          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
         end
       end
       r.instinateStart = function(self) -- Called when the program 'starts' > 
@@ -870,7 +877,7 @@ do -- Object hierarchy (in do for easy collapse)
         self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
         self:log{"function", fc, cc, sig}
         for k, v in pairs(self.start) do
-          local success, _ = pcall(return v()) -- Attempt to call functions/tables with __call
+          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
         end
       end
       r.beginTermination = function(self) -- Called when the program 'ends' > 
@@ -878,7 +885,7 @@ do -- Object hierarchy (in do for easy collapse)
         self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
         self:log{"function", fc, cc, sig}
         for k, v in pairs(self.terminate) do
-          local success, _ = pcall(return v()) -- Attempt to call functions/tables with __call
+          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
         end
       end
 
@@ -918,14 +925,14 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
     get = Enum.DataStoreRequestType.GetAsync,
     update = Enum.DataStoreRequestType.UpdateAsync,
     GetSorted = Enum.DataStoreRequestType.GetSortedAsync,
-    SetIncrementSorted = enums.DataStoreRequestType.SetIncrementSortedAsync
+    SetIncrementSorted = Enum.DataStoreRequestType.SetIncrementSortedAsync
   },
   yeildRequest = function(self, type)
     fc = "localDataStore/yeildRequest"
     self, type = pm({self, type}, {"communicationchannel"}, {"self", "type"}, {fc, cc})
     self:log{"function", fc, cc}
     local getBudget = function() 
-      local suc, result = pcall(function return DataStoreService:GetRequestBudgetForRequestType(type) end)
+      local suc, result = pcall(function () return DataStoreService:GetRequestBudgetForRequestType(type) end)
       assert(suc, "Manually caught error in " .. cc .. " in " .. fc .. " while attempting to read budget (most likely bad type param): " .. result)  
     end
     -- Manage how many requests go through data store service
@@ -933,57 +940,57 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
       return
     end
     local n = 0 -- For debugging purposes and just out of interest
-    while getBudget() < 5 then -- Yeild until enough requests can be received
+    while getBudget() < 5 do -- Yeild until enough requests can be received
       wait(5) -- Yeild the thread until budget
       n += 1
       self:log("function", fc, cc, "yeilding", n)
     end
-  end
-  recordRequest = function(self, type, index, ...) -- Yeilds and cashes
+  end,
+  recordRequest = function(self, type, index, ...) -- Record **RAW** requests (to DS) yeilds
     fc = "localDataStore/recordRequest"
+    local args -- Ensures clarity over variable scopes
     self, type, index, args = pm({self, type, index, {...} or {}}, {"communicationchannel"}, {"self", "type", "index", "args"}, {cc, fc}, {...})
     self:log{"function", fc, cc}
-    table.insert(self.record, {type = type, time = os.time(), index = index , extra = args})
+    table.insert(self.record, {type = type, time = os.time(), index = index, extra = args})
     self:yeildRequest(type)
     if type == self.types.set then
 
     elseif type == self.types.get then
       self.cash[index]:recordAccess()
     end
-  end
-  rawGet = function (self, index, callback)
+  end,
+  rawGet = function (self, index, callback) -- Retrieves value at index in database ONLY
     fc = "localDataStore/rawGet"
-    self, index, callback = pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc})
-    self:log{"function", fc, cc}
-    local success, value, errorMessage = pcall(
-      local a, b, c = self.reference:GetAsync(index)
-      self:recordRequest(self.types.get, {a, b, c})
-      return a, b, c
-    )
+    self, index, callback, sig = pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc})
+    self:log{"function", fc, cc, sig}
+    local success, value, errorMessage = pcall(function ()
+      local success, value, errorMessage = self.reference:GetAsync(index)
+      self:recordRequest(self.types.get, index, {success = success, value = value, errorMessage = errorMessage})
+      return success, value, errorMessage
+    end)
     if callback then
       callback(success, value, errorMessage)
     end
     return success, value, errorMessage
   end,
-  rawSet = function (self, index, value, callback)
+  rawSet = function (self, index, value, callback) -- Sets value in raw database and callbacks ONLY
     fc = "localDataStore/rawSet"
-    self, index, value, callback = pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc})
-    self:log{"function", fc, cc}
-    local success, errorMessage = pcall(
-      local a, b, c = self.reference:SetAsync(index, value)
-      self:recordRequest(self.types.set, {a, b, c, value = value})
-      return a, b, c, value
-    )
+    self, index, value, callback, sig = pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc})
+    self:log{"function", fc, cc, sig}
+    local success, errorMessage = pcall(function ()
+      local success, errorMessage = self.reference:SetAsync(index, value)
+      self:recordRequest(self.types.set, index, {success = success, errorMessage = errorMessage, value = value})
+      return success, errorMessage
+    end)
     if callback then
-      callback(succes, errorMessage, value)
+      callback(success, errorMessage, value)
     end
     return success, errorMessage, value
   end,
-  get = function(self, index, callback)
+  get = function(self, index, callback) -- Retrieves value from cash OR raw > 
     fc = "localDataStore/get"
     self, index, callback = pm(pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc}))
     self:log{"function", fc, cc}
-    recordRequest(self, self.types.get, index)
     if self.cash[index] then
       local data = self.cash[index].data
       if callback then
@@ -995,20 +1002,20 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
       return success, value, errorMessage
     end
   end,
-  set = function(self, index, value, callback)
+  set = function(self, index, value, callback) -- Sets value in cash OR raw AND creates new cash
     fc = "localDataStore/set"
     self, index, callback = pm(pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc}))
     self:log{"function", fc, cc}
-    self:recordRequest(self.types.set, index, {callback = callback})
     if self.cash[index] then
-      self.cash[index]:updateData(value)
+      self.cash[index]:updateData(value, false) -- Updates data to not synced
       if callback then callback("CASHED", value) end
     else
       local success, errorMessage = self:rawSet(index, value, callback)
-      if success then self.cash[index] = (cashObj:New{}):updateData(value) end -- Store retrieved data in cash (if successfully retrieved)
+      if success then self.cash[index] = (cashObj:New{}):updateData(value, true) end -- Store retrieved data in cash (if successfully retrieved)
       return success, value, errorMessage
     end
   end,
+
 }
 
 local MultiServerCommunication = Communication:New{ -- Allows regulated communication between INFINITE other servers in same game
@@ -1023,15 +1030,16 @@ local MultiServerCommunication = Communication:New{ -- Allows regulated communic
   },
   __default = function(self) error("DO NOT ATTEMPT to use MultiServerCommunication or other instinated objects as parents", 1) end,
   instinate = function(self)
-    channels.C_BossID = localDataStore:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
-  end
+    self.channels.C_BossID = localDataStore:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
+  end,
 }
 
 --------------------------------------------------------------
 
-cc = "runtime section"
+cc = "runtime section" -- 'Activates' and sets up indefinite running of program with high level objects
+-- And when I say high, I mean *HIGH* objects, like they have been getting at the good stuff for a while now and are really gone good now
 
-
+RUNTIME -- Stuff
 
 --------------------------------------------------------------
 
