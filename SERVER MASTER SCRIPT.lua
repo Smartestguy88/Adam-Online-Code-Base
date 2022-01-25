@@ -32,6 +32,7 @@ end
 
 -- Everything to do with communication
 --[[
+
   **Everything to do with data stores:**
 
   There is only ONE ROOT data store: '_DataStore::v1.0.0' // Will be updated as versions
@@ -74,7 +75,7 @@ end
         Structures /
           # This section is IMPORTANT as it is an index of all structures a player owns
           # This section, for any important events checks DataStore/Global/Structure/Index/<Requested ID> as superior
-          # It also allows for history
+          # It also allows for history as doesn't necessarily need to update
           History --> Player ID --> [Structure IDs]
           Current --> Player ID --> [Structure IDs]
         Settings /
@@ -102,45 +103,47 @@ end
         # 
         Server ID<Instance> --> Random Info
       ServerManagement /
-                # This data store section is available as a record of servers past events, which can be used to retrieve players old data
-                BOSS SERVER ID
-                TOOMANYBOSSES
-                # INDEX will be kept by the boss server as a record of all servers that need to be communicated with
-                INDEX --> [Server ID<Instance>] // Managed by boss server
-                Final Cache --> Server ID<Instance> --> Custom Cache Data Type<table>
+        # This data store section is used to determine the boss server and to manage its communication channels
+        BOSS SERVER ID
+        TOOMANYBOSSES
+        # INDEX will be kept by the boss server as a record of all servers that need to be communicated with
+        INDEX --> [Server ID<Instance>] // Managed by boss server
+        Final Cache --> Server ID<Instance> --> Custom Cache Data Type<table> # Plebs post here under their own id to commuunicate with the boss server
 
   To make sure that data is not corrupted, Data Store Service and Messaging Service will be used to communicate between servers
   to decide which one is boss and which ones are plebs
+  This means that no data is updated without taking into account the changes applied by another server at the same time
 
   *Limite of Data Store Service (In seconds, per minute):*
-  -- Sixe of entry: 1MB (MegaByte)
-  -- Get: 60 + (numPlayers × 10) per server
-  -- Set: 60 + (numPlayers × 10) per server
-  -- Set the same key: [6]
-  -- Get Keys: 5 + (numPlayers × 2) per server
+    -- Sixe of entry: 1MB (MegaByte)
+    -- Get: 60 + (numPlayers × 10) per server
+    -- Set: 60 + (numPlayers × 10) per server
+    -- Set the same key: [6]
+    -- Get Keys: 5 + (numPlayers × 2) per server
 
   *Limits of Messaging Server (In number, per minute):*
-  -- Size of message: 1kB (KiloByte)
-  -- Send: 150 + (60 × numPlayers) per server
-  -- Receive: 100 + [50 × numServers] per game
-  -- Receive per topic: 10 + [20 × numServers] per topic
+    -- Size of message: 1kB (KiloByte)
+    -- Send: 150 + (60 × numPlayers) per server
+    -- Receive: 100 + [50 × numServers] per game
+    -- Receive per topic: 10 + [20 × numServers] per topic
 
   *Each PLEB server can (per server):*
-  -- Set: 10 per minute per player
-  -- Get: 10 per minute per player
-  -- Get Keys: 2 per minute per player
-  -- Send: 60 per minute per player
-  -- Receive: 50 per minute
-  -- Receive: 20 per minute per topic
+    -- Set: 10 per minute per player
+    -- Get: 10 per minute per player
+    -- Get Keys: 2 per minute per player
+    -- Send: 60 per minute per player
+    -- Receive: 50 per minute
+    -- Receive: 20 per minute per topic
 
   *Each BOSS server can (per *BOSS* server):*
-  -- Set: 60 per minute
-  -- Get: 60 per minute
-  -- Get Keys: 5 per minute
-  -- Send: 150 per minute
-  -- Receive: 100 per minute
-  -- Receive per topic: 10 per minute
-
+    -- Set: 60 per minute
+    -- Get: 60 per minute
+    -- Get Keys: 5 per minute
+    -- Send: 150 per minute
+    -- Receive: 100 per minute
+    -- Receive per topic: 10 per minute
+  
+  System requirements:
   *What this system needs to do:*
   -- Allow only 1 BOSS server
   -- Allows the BOSS server to handle **MANY** requests
@@ -256,7 +259,7 @@ end
 
 cc = "global defs"
 
-do -- Global defs (in do for easy collapse)
+do -- Global defs (in do for easy collapse) 
   cc = "global defs/metatable"
   
   is = function(obj) -- Used to determine if a table is a custom class (using its __type prop)
@@ -470,7 +473,7 @@ do -- Global defs (in do for easy collapse)
   
 end
 
-do -- Global reference names
+do -- Global reference names  
   Players = game:GetService("Players")
   ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -761,14 +764,21 @@ do -- Object hierarchy (in do for easy collapse)
       end
       r.instinated = os.time()
 
-      r.synced = nil -- Override as per
-      r.data = nil -- OVERRIDE PLEASE
+      r.synced = nil -- Override as per t/f
+      r.data = nil -- OVERRIDE PLEASE {}
       r.past = {}
+      r.recorded = {} -- Used for extra recorded actions in CASH OBJECT
       r.updateData = function(self, data)
         fc = "CashedData/__default/updateData"
         self, data = pm({self, data}, {"casheddata"}, {"self", "data"}, {cc, fc})
-        table.insert(self.past, {data = data, time = os.time()})
+        table.insert(self.past, {data = data, timeOfUpdate = os.time(), __type = "casheddata/past"})
         self.data = data
+      return self
+      end
+      r.recordAccess = function(self, ...)
+        fc = "CashedData/__default/recordAccess"
+        self = pt(self, "casheddata", "self passed to " .. fc .. " in " .. cc .. " is not type casheddata")
+        table.insert(self.recorded, {time = os.time(), extra = {...}, __type = "casheddata/recorded"})
       end
       return r
     end
@@ -784,12 +794,13 @@ local cashObj = CashedData:New{
   __type = "cashobj",
   __name = "[cashObj :( inherited]",
 }
+-- Represents the data store local to this game (and script, see 'dataStoreName' definition in first cc section)
 local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   __type = "CommunicationChannel",
   __name = "[LocalDataStore]",
   reference = StandardDataStore,
   cash = {},
-  record = {},
+  record = {}, -- Record for debugging of CHANNEL
   types = {
     set = Enum.DataStoreRequestType.SetIncrementAsync,
     get = Enum.DataStoreRequestType.GetAsync,
@@ -812,13 +823,15 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
       wait(5) -- Yeild the thread until budget
     end
   end
-  recordRequest = function(self, type, ...) -- Yeilds and cashes
+  recordRequest = function(self, type, index, ...) -- Yeilds and cashes
     fc = "localDataStore/recordRequest"
-    self, type, args = pm({self, type, {...} or {}}, {"communicationchannel", "string"}, {"self", "type", "args"}, {cc, fc}, {...})
-    table.insert(self.record, {type = type, time = os.time(), extra = args})
+    self, type, index, args = pm({self, type, index, {...} or {}}, {"communicationchannel"}, {"self", "type", "index", "args"}, {cc, fc}, {...})
+    table.insert(self.record, {type = type, time = os.time(), index = index , extra = args})
     self:yeildRequest(type)
     if type == self.types.set then
 
+    elseif type == self.types.get then
+      self.cash[index]:recordAccess()
     end
   end
   rawGet = function (self, index, callback)
@@ -842,43 +855,48 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
       self:recordRequest(self.types.set, {a, b, c, value = value})
       return a, b, c, value
     )
-    if callbacks then
-      callback(succes, errorMessage)
+    if callback then
+      callback(succes, errorMessage, value)
     end
     return success, errorMessage, value
   end,
   get = function(self, index, callback)
     fc = "localDataStore/get"
     self, index, callback = pm(pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc}))
+    recordRequest(self, self.types.get, index)
     if self.cash[index] then
+      local data = self.cash[index].data
       if callback then
-        callback("CASHED", self.cash[index].data)
+        callback("CASHED", data)
       end
-      return "CASHED", self.cash[index].data
+      return "CASHED", data
     else
       local success, value, errorMessage = self:rawGet(index, callback)
-      if callback then
-        callback(success, value, errorMessage)
-      end
       return success, value, errorMessage
     end
   end,
   set = function(self, index, value, callback)
     fc = "localDataStore/set"
     self, index, callback = pm(pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc}))
-    
+    self:recordRequest(self.types.set, index, {callback = callback})
+    if self.cash[index] then
+      self.cash[index]:updateData(value)
+      if callback then callback("CASHED", value) end
+    else
+      local success, errorMessage = self:rawSet(index, value, callback)
+      if success then self.cash[index] = cashObj:New{}:updateData(value) end -- Store retrieved data in cash (if successfully retrieved)
+      return success, value, errorMessage
+    end
   end,
 }
 
-local bossServerIDChannel = CommunicationChannel:New{
-  
-  __name = "[CommunicationChannel]",
-}
-local MultiServerCommunication = Communication:New{
+local MultiServerCommunication = Communication:New{ -- Allows regulated communication between INFINITE other servers in same game
   __type = "MultiServerCommunication",
   __name = "[MultiServerCommunication]",
   channels = {
-
+    L_DS = localDataStore, -- Local _ Data Store
+    C_BossID = nil, -- Will add dynamic reference to channels.L_DS:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
+    C_ToManyBosses = nil, -- Cross server _ ...
   }
 }
 
