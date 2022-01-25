@@ -360,9 +360,14 @@ do -- Global defs (in do for easy collapse)
       assert(not is(val)[result], message, level, ...)
     end
     
+    local sig = {paramName = "unset (no pm added)", paramType = result, context = "unset (no pm added)", value = val, extra = {...}}
+    if is(args1)["table"] and args1["pm added:"] then
+      local pmAdded = args1["pm added:"]
+      sig = {paramName = pmAdded["paramName"], paramType = pmAdded["type"] or result, context = args1["context"]}
+    end
     -- Potentially cast types here?
     -- Return below to allow this step to be implemented here without absolute code changes  
-    return val
+    return val, sig
   end
   pm = function(...) -- Maps n params to their specified types and returns them OR raises error depending on correct/incorrect param-type mapping
     local args = pe({...}) -- Unneded pe but used as extra catch
@@ -371,20 +376,40 @@ do -- Global defs (in do for easy collapse)
     local paramNames = pt(args[3] or {}, "table", "paramNames passed to pm not type table")
     local contextInfo = pt(args[4] or {"Unstated function", "Unstated context"}, "table", "Context passed to pm not type table")
     local extra = pt(args[5] or {{}, ["pm added:"] = {}}, "table", "extra passed to pm is not type table ??")
-    if type(extra[1]) ~= "table" then extra[1] = {} warn("Overriding first optional parameter provided to pm") end
-    if type(extra["pm added:"]) ~= "table" then extra["pm added:"] = {} warn("Overriding 'pm added:' optional parameter provided to pm", debug.traceback()) end
+    if type(extra[1]) ~= "table" then
+      if extra[1] ~= nil then warn("Overriding first optional parameter provided to pm", debug.traceback()) end
+      extra[1] = {}
+    end
+    if type(extra["pm added:"]) ~= "table" then
+      if extra["pm added:"] ~= nil then warn("Overriding 'pm added:' optional parameter provided to pm", debug.traceback()) end
+      extra["pm added:"] = {}
+    end
     local r = {}
-    local n = 1
+    local n = 0
     for i, v in pairs(params) do
-      if type(i) == "number" then n += 1 end -- Don't count arguments towards unpack total if they not numerical
+      local extra = {}
+      if type(i) == "number" then
+        n += 1
+        extra[1]["pm added:"]["index"] = {i = i, v = v} -- Extra info for debugging params passed
+        extra[1]["pm added:"]["paramName"] = paramNames[i]
+        extra[1]["pm added:"]["type"] = types[i]
+        extra[1]["pm added:"]["context"] = contextInfo[i]
+      end -- Don't count arguments towards unpack total if they not numerical
       types[i] = types[i] or "!not!nil" -- Default argument is not nil '!not!nil'
       extra[1].DNE = tostring(paramNames[i]) .. " does not exist in " .. contextInfo[2] .. "/" .. contextInfo[1]
-      extra["pm added:"][i] = {k = i, v = v} -- Extra info for debugging params passed
+      
       r[i] = pt(params[i], types[i],
-        "Bad argument #"..i.." "..tostring(paramNames[i])..": Not type "..types[i].." :( "..contextInfo[2] .."/ ".. contextInfo[1]..";", 3,
-        unpack(extra)
+        "Bad argument #"..i.." "..tostring(paramNames[i])..": Not type "..types[i].." :( "..contextInfo[2] .."/:".. contextInfo[1]..";",
+        3,
+        extra
       )
     end
+    local sig = {}
+    for k, v in pairs(params) do
+      sig[paramNames[k] or k] = {v = v, is = types[k]}
+    end
+    n += 1 -- Allow for signature in return parameters
+    table.insert(r, sig, n)
     return unpack(r, 1, n)
   end
 
@@ -504,18 +529,17 @@ do -- Object hierarchy (in do for easy collapse)
       self = pt(self, "object", "self passed to " .. fc .. " in " .. cc .. " not type object")
       if #args == 1 then
         args = pt(args[1], "table", "arg 1 passed to " .. fc .. " in " .. cc .. " not type table")
-        args.t = args.t or args.type
-        args.m = args.m or args.message
-        args.e = args.e or args.extra
-      else
-        local extra = {}
-        for i, v in ipairs(args) do
-          if i >= 3 then
-            extra[i] = v
-          end
-        end
-        args = {t = args[1], m = args[2], e = extra}
       end
+      args.t = args.t or args.type or args[1]
+      args.m = args.m or args.message or args[2]
+      local extra = {}
+      for i, v in ipairs(args) do
+        if i >= 3 then
+          extra[i] = v
+        end
+      end
+      args.e = args.e or args.extra or extra
+
       local t = args.t -- Type function/log/debug/state
       local m = args.m -- Message typically text
       local e = args.e -- Extra info
@@ -603,6 +627,7 @@ do -- Object hierarchy (in do for easy collapse)
       return r
     end,
   }
+
   CommunicationObject = Server:New{ -- Parent of all communication related objects
     __type = "communicationobject",
     __name = "[communicationobject inherited]",
@@ -663,7 +688,8 @@ do -- Object hierarchy (in do for easy collapse)
       r.asyncRequests = {}
       r.appendRequest = function(self, requestObj)
         local fc = "AsyncHandler/__default/appendRequest"
-        self, requestObj = pm({self, requestObj}, {"table", "asyncobject"}, {"self", "requestObj"}, {fc, cc})
+        self, requestObj, sig = pm({self, requestObj}, {"table", "asyncobject"}, {"self", "requestObj"}, {fc, cc})
+        self:log{"function", fc, cc, sig}
         table.push(self.asyncRequests, requestObj)
       end
       r.typeMapping = {
@@ -674,8 +700,8 @@ do -- Object hierarchy (in do for easy collapse)
       }
       r.handleRequest = function(self, request) -- YEILDS
         local fc = "AsyncHandler/handleRequest"
-        self, request = pm({self, request}, {"asynchandler", "asyncobject"})
-        self:log{"function", fc, cc, request}
+        self, request, sig = pm({self, request}, {"asynchandler", "asyncobject"})
+        self:log{"function", fc, cc, request, sig}
         
         -- The meat of async: request according to AsyncObject properties
         local requestType = pt(request.requestType, "!not!nil", "request passed to " .. fc .. " in " .. cc .. " .requestType does not exist (=nil)")
@@ -691,15 +717,16 @@ do -- Object hierarchy (in do for easy collapse)
       end
       r.handleRequests = function(self) -- YEILDS
         local fc = "AsyncHandler/handleRequests"
-        self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
-        self:log{"function", fc, cc}
+        self, sig = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
+        self:log{"function", fc, cc, sig}
         for k, v in pairs(self.asyncRequests) do
           self:handleRequest(self.asyncRequests[k])
         end
       end
       r.__call = function(self) -- Calls self:handleRequests
         local fc = "AsyncHandler/__default/__call"
-        self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
+        self, sig = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
+        self:log{"function", fc, cc, sig}
         self:handleRequests(self)
       end
       return r
@@ -707,7 +734,7 @@ do -- Object hierarchy (in do for easy collapse)
   }
   CommunicationChannel = CommunicationObject:New{ -- (Parent:) represents a means of communication
     __type = "communicationchannel",
-    __name = "[communicationchannel inherited]",\
+    __name = "[communicationchannel inherited]",
     __default = function(self) -- Children of this class call this as it is in their metatable
       local fc = "CommunicationChannel/__default"
       self = pt(self, "table", "self passed to " .. fc .. " in " .. cc .. " not type table")
@@ -724,6 +751,14 @@ do -- Object hierarchy (in do for easy collapse)
       r.cash = {} -- OVERRIDE
       r.rawGet = nil
       r.rawSet = nil
+      
+      r.prefixIndex = r.prefixIndex or "" -- OVERRIDE as per below constructor
+      r.NewIndexed = function(self, index)
+        fc = "CommunicationChannel/__default/NewIndexed"
+        self, index, sig = pm({self, index}, {"communicationchannel", "string"}, {"self", "index"}, {cc, fc})
+        self:log{"function", fc, cc, sig}
+        return self:New{prefixIndex = self.prefixIndex + index}
+      end
 
       return r
     end,
@@ -741,11 +776,15 @@ do -- Object hierarchy (in do for easy collapse)
       r.__type = "communication inherited"
       r.__name = "[communication :( inherited]" -- Add default name to all children
       r.channels = {}
-      r.addChannel = function(self, channel)
+      r.addChannel = function(self, channel, index)
         local fc = "Communication/__default/addChannel"
         self, channel = pm({self, channel}, {"communication", "communicationchannel"}, {"self", "channel"}, {fc, cc})
         self:log{"function", fc, cc}
-        table.insert(self.channels, channel)
+        if index == nil then
+          table.insert(self.channels, channel)
+        else
+          self.channels[index] = channel
+        end
         return channel
       end
       return r
@@ -770,7 +809,8 @@ do -- Object hierarchy (in do for easy collapse)
       r.recorded = {} -- Used for extra recorded actions in CASH OBJECT
       r.updateData = function(self, data)
         fc = "CashedData/__default/updateData"
-        self, data = pm({self, data}, {"casheddata"}, {"self", "data"}, {cc, fc})
+        self, data, sig = pm({self, data}, {"casheddata"}, {"self", "data"}, {cc, fc})
+        self:log{"function", fc, cc, sig}
         table.insert(self.past, {data = data, timeOfUpdate = os.time(), __type = "casheddata/past"})
         self.data = data
       return self
@@ -784,11 +824,83 @@ do -- Object hierarchy (in do for easy collapse)
     end
   }
   
+  RuntimeHandler = Server:New{
+    __type = "runtimehandler",
+    __name = "[Runtime Handler :( inherited]",
+    __default = function(self)
+      local fc = "RuntimeHandler/__default"
+      self = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+      local r = {}
+      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
+        r = getmetatable(self).__default(self) -- Handle inherited __default
+      end
+      r.perFrame = {}
+      r.start = {}
+      r.terminate = {}
+
+      r.subscribeFrame = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeFrame"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        table.insert(r.perFrame, obj)
+      end
+      r.subscribeStart = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeFrame"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        table.insert(r.perFrame, obj)
+      end
+      r.subscribeTerminate = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeTerminate"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        table.insert(r.perFrame, obj)
+      end
+
+      r.executeStep = function(self) -- Called every 'step' > 
+        fc = "RuntimeHandler/__default/executeStep"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        for k, v in pairs(self.perFrame) do
+          local success, _ = pcall(return v()) -- Attempt to call functions/tables with __call
+        end
+      end
+      r.instinateStart = function(self) -- Called when the program 'starts' > 
+        fc = "RuntimeHandler/__default/instinateStart"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        for k, v in pairs(self.start) do
+          local success, _ = pcall(return v()) -- Attempt to call functions/tables with __call
+        end
+      end
+      r.beginTermination = function(self) -- Called when the program 'ends' > 
+        fc = "RuntimeHandler/__default/beginTermination"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        for k, v in pairs(self.terminate) do
+          local success, _ = pcall(return v()) -- Attempt to call functions/tables with __call
+        end
+      end
+
+      r.__call = function(self)
+        fc = "RuntimeHandler/__default/__call"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        self:executeStep()
+      end
+      return r
+    end,
+  }
 end
 
 --------------------------------------------------------------
 
-cc = "multi-server management" -- Cross server
+cc = "object implementation"
+
+local RUNTIME = RuntimeHandler:New{
+  __type = "RuntimeHandler",
+  __name = "[Runtime Handler]",
+}
 
 local cashObj = CashedData:New{
   __type = "cashobj",
@@ -811,6 +923,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   yeildRequest = function(self, type)
     fc = "localDataStore/yeildRequest"
     self, type = pm({self, type}, {"communicationchannel"}, {"self", "type"}, {fc, cc})
+    self:log{"function", fc, cc}
     local getBudget = function() 
       local suc, result = pcall(function return DataStoreService:GetRequestBudgetForRequestType(type) end)
       assert(suc, "Manually caught error in " .. cc .. " in " .. fc .. " while attempting to read budget (most likely bad type param): " .. result)  
@@ -819,13 +932,17 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
     if getBudget() >= 1 then
       return
     end
-    while getBudget() < 5 then
+    local n = 0 -- For debugging purposes and just out of interest
+    while getBudget() < 5 then -- Yeild until enough requests can be received
       wait(5) -- Yeild the thread until budget
+      n += 1
+      self:log("function", fc, cc, "yeilding", n)
     end
   end
   recordRequest = function(self, type, index, ...) -- Yeilds and cashes
     fc = "localDataStore/recordRequest"
     self, type, index, args = pm({self, type, index, {...} or {}}, {"communicationchannel"}, {"self", "type", "index", "args"}, {cc, fc}, {...})
+    self:log{"function", fc, cc}
     table.insert(self.record, {type = type, time = os.time(), index = index , extra = args})
     self:yeildRequest(type)
     if type == self.types.set then
@@ -837,6 +954,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   rawGet = function (self, index, callback)
     fc = "localDataStore/rawGet"
     self, index, callback = pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc})
+    self:log{"function", fc, cc}
     local success, value, errorMessage = pcall(
       local a, b, c = self.reference:GetAsync(index)
       self:recordRequest(self.types.get, {a, b, c})
@@ -850,6 +968,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   rawSet = function (self, index, value, callback)
     fc = "localDataStore/rawSet"
     self, index, value, callback = pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc})
+    self:log{"function", fc, cc}
     local success, errorMessage = pcall(
       local a, b, c = self.reference:SetAsync(index, value)
       self:recordRequest(self.types.set, {a, b, c, value = value})
@@ -863,6 +982,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   get = function(self, index, callback)
     fc = "localDataStore/get"
     self, index, callback = pm(pm({self, index, callback or function () end}, {"communicationchannel", "string", "function"}, {"self", "index", "callback"}, {cc, fc}))
+    self:log{"function", fc, cc}
     recordRequest(self, self.types.get, index)
     if self.cash[index] then
       local data = self.cash[index].data
@@ -878,13 +998,14 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   set = function(self, index, value, callback)
     fc = "localDataStore/set"
     self, index, callback = pm(pm({self, index, value, callback or function () end}, {"communicationchannel", "string", "!not!nil", "function"}, {"self", "index", "value", "callback"}, {cc, fc}))
+    self:log{"function", fc, cc}
     self:recordRequest(self.types.set, index, {callback = callback})
     if self.cash[index] then
       self.cash[index]:updateData(value)
       if callback then callback("CASHED", value) end
     else
       local success, errorMessage = self:rawSet(index, value, callback)
-      if success then self.cash[index] = cashObj:New{}:updateData(value) end -- Store retrieved data in cash (if successfully retrieved)
+      if success then self.cash[index] = (cashObj:New{}):updateData(value) end -- Store retrieved data in cash (if successfully retrieved)
       return success, value, errorMessage
     end
   end,
@@ -897,23 +1018,36 @@ local MultiServerCommunication = Communication:New{ -- Allows regulated communic
     L_DS = localDataStore, -- Local _ Data Store
     C_BossID = nil, -- Will add dynamic reference to channels.L_DS:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
     C_ToManyBosses = nil, -- Cross server _ ...
-  }
+    C_Index = nil,
+    C_FinalCache = nil,
+  },
+  __default = function(self) error("DO NOT ATTEMPT to use MultiServerCommunication or other instinated objects as parents", 1) end,
+  instinate = function(self)
+    channels.C_BossID = localDataStore:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
+  end
 }
 
 --------------------------------------------------------------
 
-cc = "communication management" -- Local server
+cc = "runtime section"
+
+
 
 --------------------------------------------------------------
 
-cc = "debug section"
+cc = ""
 
 --------------------------------------------------------------
 
+cc = ""
 
+--------------------------------------------------------------
+cc = ""
 
+--------------------------------------------------------------
+cc = ""
 
-
+--------------------------------------------------------------
 
 
 
