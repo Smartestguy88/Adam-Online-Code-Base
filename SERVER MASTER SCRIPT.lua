@@ -343,7 +343,7 @@ do -- Global defs (in do for easy collapse)
   end
   pt = function(val, result, message, level, ...) -- Alows for easy Parameter Type checks e.g. pt(param, "number", "p NaN")
     -- pm does dynamic below code
-    local result, reversed = string.gsub(pe(result or "table", "result in pt DNE", 3), "^!not!", "") -- How many '!not!'s are there?
+    local result, reversed = string.gsub(pe(result or "table", "result in pt DNE", 3), "^!not!", "") -- IS there a !not! at the start?
     assert(type(result) == "string", "result in pt not type string", 2)
     local message = pe(message or "", "message in pt DNE")
     local level = pe(level or 2, "level in pt DNE")
@@ -355,10 +355,20 @@ do -- Global defs (in do for easy collapse)
     local DNE = (is(args1)["table"]) and (args1.DNE) and (result ~= "nil")
     if DNE then pe(val, DNE, level)  end -- Extra message if value doesn't exist if provided in {...}[1].DNE
     
+    local orStart, orFinish, index = string.find(result, "!or!") -- Extract !or! statement (singular)
     if reversed % 2 == 0 then
-      assert(is(val)[result], message, level, ...)
+      if orStart then
+        print("!OR! DETECTED YAY! 1:'" .. string.sub(result, 1, orStart - 1) .. "' 2:'" .. string.sub(result, -1, orFinish + 1) .. "' ;")
+        assert(is(val)[string.sub(result, 1, orStart - 1)] or is(val)[string.sub(result, -1, orFinish + 1)], message, level, ...)
+      else
+        assert(is(val)[result], message, level, ...)
+      end
     else
-      assert(not is(val)[result], message, level, ...)
+      if orStart then
+        assert(not (is(val)[string.sub(result, 1, orStart - 1)] or is(val)[string.sub(result, -1, orFinish + 1)]), message, level, ...)
+      else
+        assert(not is(val)[result], message, level, ...)
+      end
     end
     
     local sig = {paramName = "unset (no pm added)", paramType = result, context = "unset (no pm added)", value = val, extra = {...}}
@@ -381,14 +391,13 @@ do -- Global defs (in do for easy collapse)
       if extra[1] ~= nil then warn("Overriding first optional parameter provided to pm", debug.traceback()) end
       extra[1] = {}
     end
-    if type(extra["pm added:"]) ~= "table" then
-      if extra["pm added:"] ~= nil then warn("Overriding 'pm added:' optional parameter provided to pm", debug.traceback()) end
-      extra["pm added:"] = {}
+    if type(extra[1]["pm added:"]) ~= "table" then
+      if extra[1]["pm added:"] ~= nil then warn("Overriding 'pm added:' optional parameter provided to pm", debug.traceback()) end
+      extra[1]["pm added:"] = {}
     end
     local r = {}
     local n = 0
     for i, v in pairs(params) do
-      local extra = {}
       if type(i) == "number" then
         n += 1
         extra[1]["pm added:"]["index"] = {i = i, v = v} -- Extra info for debugging params passed
@@ -410,7 +419,7 @@ do -- Global defs (in do for easy collapse)
       sig[paramNames[k] or k] = {v = v, is = types[k]}
     end
     n += 1 -- Allow for signature in return parameters
-    table.insert(r, sig, n)
+    table.insert(r, n, sig)
     return unpack(r, 1, n)
   end
 
@@ -474,7 +483,7 @@ do -- Global defs (in do for easy collapse)
         end
         return str
       end
-      local _wrapper = pt(wrapper(self), "string", "wrapper passed to specifications in tostringGen return not type string")
+      local _wrapper = pt(wrapper(self, _tostring), "string", "wrapper passed to specifications in tostringGen return not type string")
       return _wrapper
     end
     return func
@@ -613,17 +622,14 @@ do -- Object hierarchy (in do for easy collapse)
       local a, b = pm({a, b}, {}, {"a", "p"}, {cc, fc})
       return tostring(a) .. tostring(b)
     end,
-    __newindex = function(self, key, value)
-      --print("(key, value) assignment: ", key, value) -- This could be built upon to create internal tracking system
-      self[key] = value
-    end,
   }
   Object.__index = Object -- Absolute object reference
   
   cc = "object hierarchy/Core types def"
-  Server = Object:New{ -- Parent of all server related objects NOTE: ONLY EXISTS ON LOCAL SERVER
+  Server = Object:New{ -- *PARENT* (NOT INSTANCE) of all server related objects NOTE: ONLY EXISTS ON LOCAL SERVER
     __type = "server",
     __name = "[server inherited]",
+    threads = false,
     _RuntimeHandler = RUNTIME, -- Reference to global variable defined in cc = "object implementation"
     __default = function(self)
       local fc = "Server/__default"
@@ -635,9 +641,106 @@ do -- Object hierarchy (in do for easy collapse)
       r.__type = "serverobject inherited"
       r.__name = "[server object :( inherited]"
 
-      Server._RuntimeHandler:queueForInspection(r) -- Queues this for potential triger functions like 'instinate' or 'terminate' that need to be handled by the local RuntimeHandler (unique to server objects only)
+      -- Queues this for potential triger functions like 'instinate' or 'terminate' that need to be handled by the local RuntimeHandler (if threads)
+      if r.threads then RUNTIME:queueForInspection(r) end
       return r
     end,
+  }
+
+  RuntimeHandler = Server:New{
+    __type = "runtimehandler",
+    __name = "[Runtime Handler :( inherited]",
+    threads = false,
+    __default = function(self)
+      local fc = "RuntimeHandler/__default"
+      self = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+      local r = {}
+      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
+        r = getmetatable(self).__default(self) -- Handle inherited __default
+      end
+      r.perStep = {}
+      r.start = {}
+      r.terminate = {}
+
+      r.subscribeStep = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeStep"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        table.insert(r.perFrame, obj)
+        self:log{"debug", "Just subscribed an object to step RUNTIME permissions", obj, fc, cc, sig}
+        return obj
+      end
+      r.subscribeStart = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeStart"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        table.insert(r.perFrame, obj)
+        return obj
+      end
+      r.subscribeTerminate = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeTerminate"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        table.insert(r.perFrame, obj)
+        return obj
+      end
+
+      r.executeStep = function(self) -- Called every 'step' > 
+        fc = "RuntimeHandler/__default/executeStep"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        for k, v in pairs(self.perFrame) do
+          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
+        end
+      end
+      r.instinateStart = function(self) -- Called when the program 'starts' > 
+        fc = "RuntimeHandler/__default/instinateStart"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        for k, v in pairs(self.start) do
+          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
+        end
+      end
+      r.beginTermination = function(self) -- Called when the program 'ends' > 
+        fc = "RuntimeHandler/__default/beginTermination"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        for k, v in pairs(self.terminate) do
+          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
+        end
+      end
+
+      r.__call = function(self)
+        fc = "RuntimeHandler/__default/__call"
+        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
+        self:log{"function", fc, cc, sig}
+        self:executeStep()
+      end
+      return r
+    end,
+  }
+  RUNTIME = RuntimeHandler:New{ -- IMPORTANT local RuntimeHandler ABSOLUTE GLOBAL REFERENCES EXIST > 
+    __type = "RuntimeHandler",
+    __name = "[Runtime Handler]",
+    threads = false,
+    queuedForInspection = {},
+    queueForInspection = function(self, objRef)
+      fc = "RUNTIME/queueForInspection"
+      self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
+      self:log{"function", fc, cc, sig}
+      table.insert(self.queuedForInspection, objRef)
+    end,
+    inspectQueued = function(self)
+      fc = "RUNTIME/inspectQueued"
+      self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
+      self:log{"function", fc, cc, sig}
+      for k, v in pairs(self.queuedForInspection) do
+        if v.instinate then self:subscribeStart(v) end
+        if v.terminate then self:subscribeTerminate(v) end
+        if v.step then self:subscribeStep(v) end
+      end
+      return
+    end,    
   }
 
   CommunicationObject = Server:New{ -- Parent of all communication related objects
@@ -688,6 +791,7 @@ do -- Object hierarchy (in do for easy collapse)
   AsyncHandler = CommunicationObject:New{ -- Object that holds and is called periodically to handle async requests from LOCAL server
     __type = "asynchandler",
     __name = "[asynchandler inherited]",
+    threads = true, -- Means this object is queued for the local runtime handler
     __default = function(self)
       local fc = "AsyncHandler/__default"
       self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
@@ -763,6 +867,11 @@ do -- Object hierarchy (in do for easy collapse)
       r.cash = {} -- OVERRIDE
       r.rawGet = nil
       r.rawSet = nil
+
+      r.request = function(self, callback)
+        fc = "CommunicationChannel/__default/request"
+        self = pm({self, callback}, {"communicationchannel", "nil!or!function"})
+      end
       
       r.prefixIndex = r.prefixIndex or "" -- OVERRIDE as per below constructor
       r.NewIndexed = function(self, index)
@@ -835,115 +944,21 @@ do -- Object hierarchy (in do for easy collapse)
       return r
     end
   }
-  
-  RuntimeHandler = Server:New{
-    __type = "runtimehandler",
-    __name = "[Runtime Handler :( inherited]",
-    __default = function(self)
-      local fc = "RuntimeHandler/__default"
-      self = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-      local r = {}
-      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self) -- Handle inherited __default
-      end
-      r.perStep = {}
-      r.start = {}
-      r.terminate = {}
 
-      r.subscribeStep = function(self, obj)
-        fc = "RuntimeHandler/__default/subscribeStep"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        table.insert(r.perFrame, obj)
-        self:log{"debug", "Just subscribed an object to step RUNTIME permissions", obj, fc, cc, sig}
-        return obj
-      end
-      r.subscribeStart = function(self, obj)
-        fc = "RuntimeHandler/__default/subscribeStart"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        table.insert(r.perFrame, obj)
-        return obj
-      end
-      r.subscribeTerminate = function(self, obj)
-        fc = "RuntimeHandler/__default/subscribeTerminate"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        table.insert(r.perFrame, obj)
-        return obj
-      end
-
-      r.executeStep = function(self) -- Called every 'step' > 
-        fc = "RuntimeHandler/__default/executeStep"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        for k, v in pairs(self.perFrame) do
-          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
-        end
-      end
-      r.instinateStart = function(self) -- Called when the program 'starts' > 
-        fc = "RuntimeHandler/__default/instinateStart"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        for k, v in pairs(self.start) do
-          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
-        end
-      end
-      r.beginTermination = function(self) -- Called when the program 'ends' > 
-        fc = "RuntimeHandler/__default/beginTermination"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        for k, v in pairs(self.terminate) do
-          local success, _ = pcall(function () return v() end) -- Attempt to call functions/tables with __call
-        end
-      end
-
-      r.__call = function(self)
-        fc = "RuntimeHandler/__default/__call"
-        self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
-        self:log{"function", fc, cc, sig}
-        self:executeStep()
-      end
-      return r
-    end,
-  }
 end
 
 --------------------------------------------------------------
 
 cc = "object implementation"
 
-local RUNTIME = RuntimeHandler:New{
-  __type = "RuntimeHandler",
-  __name = "[Runtime Handler]",
-  queuedForInspection = {},
-  queueForInspection = function(self, objRef)
-    fc = "RUNTIME/queueForInspection"
-    self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
-    self:log{"function", fc, cc, sig}
-    table.insert(self.queuedForInspection, objRef)
-  end,
-  inspectQueued = function(self)
-    fc = "RUNTIME/inspectQueued"
-    self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
-    self:log{"function", fc, cc, sig}
-    for k, v in pairs(self.queuedForInspection) do
-      if v.instinate then self:subscribeStart(v) end
-      if v.terminate then self:subscribeTerminate(v) end
-      if v.step then self:subscribeStep(v) end
-    end
-    return
-  end,    
-}
-
-local cashObj = CashedData:New{
+cashObj = CashedData:New{
   __type = "cashobj",
   __name = "[cashObj :( inherited]",
 }
 
 cc = "object implementation/communication"
 -- Represents the data store local to this game (and script, see 'dataStoreName' definition in first cc section)
-local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
+localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   __type = "CommunicationChannel",
   __name = "[LocalDataStore]",
   reference = StandardDataStore,
@@ -1046,7 +1061,7 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   end,
 }
 
-local MultiServerCommunication = Communication:New{ -- Allows regulated communication between INFINITE other servers in same game
+MultiServerCommunication = Communication:New{ -- Allows regulated communication between INFINITE other servers in same game
   __type = "MultiServerCommunication",
   __name = "[MultiServerCommunication]",
   channels = {
@@ -1064,7 +1079,7 @@ local MultiServerCommunication = Communication:New{ -- Allows regulated communic
     self, sig = pm({self}, {"MultiServerCommunication"}, {"self"}, {fc, cc})
     self.channels.L_DSPlayer = self.channels.L_DS:NewIndexed("Player/") -- Is really unnecessary to have this folder but hey why not?
     self.channels.L_DSServerManagement = self.channels.L_DSPlayer:NewIndexed("ServerManagement/")
-    self.channels.C_BossID = self.channels.C_BossID:NewIndexed("ServerManagement/BOSS SERVER ID")
+    self.channels.C_BossID = self.channels.L_DSServerManagement:NewIndexed("BossID")
   end,
 
 }
