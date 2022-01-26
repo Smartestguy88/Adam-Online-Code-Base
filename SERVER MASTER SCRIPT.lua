@@ -5,29 +5,30 @@ print("MASTER SERVER SCRIPT -- LOADED")
 
 local cc = "init" -- Code context, for debugging
 local fc = "<unspecified>"     -- Function context, for debugging
--- Copy below code to add generally a good context to any string
+-- Copy below code to add generally a good context to any string: (without comment parts :)
 -- .. "; In: " .. cc .. "/" .. fc or "Unstated function context"
 
+-- Code version is now handled by Github, https://github.com/Smartestguy88/Adam-Online-Code-Base/blob/main/SERVER%20MASTER%20SCRIPT.lua
 local codeVersion = script:GetAttribute("codeVersion") or "v-Absolute-1.0.3" -- Latest code version updated in attribute
-local codeName = "[" .. script.Name .. "]" -- Should result in "[MASTER SERVER SCRIPT]"
+local codeName = "[" .. script.Name or "MASTER SERVER SCRIPT-Absolute" .. "]" -- Should result in "[MASTER SERVER SCRIPT]"
 local dataStoreName = "__" .. "Data Store::" .. tostring(codeVersion) -- Used to access dataStore, change this var to stop resets per code version
 
 -- Code verion history
 --[[
-Code version history (git not used as I hope it will never have to be)
+Code version history (git not used as I hope it will never have to be) # Lol written before this is all on git :)
 v1.0.0 :: Created
 v1.0.1 :: Contains overrided (in development) type, assert, and is functions // Send on discord
 v1.0.2 :: WORKING OBJECT INHERITANCE SYSTEM LETS F**KING GO 7 HORUS OF CODING STRAIGHT
 --]]
 
 do -- Assert basic script vars
-codeVersion = tostring(codeVersion)
-codeName = tostring(codeName)
-dataStoreName = tostring(dataStoreName)
+  codeVersion = tostring(codeVersion)
+  codeName = tostring(codeName)
+  dataStoreName = tostring(dataStoreName)
 
-assert(codeVersion)   -- Code must have a version
-assert(codeName)      -- Code must have a name
-assert(dataStoreName) -- Code must have the relative data store name
+  assert(codeVersion)   -- Code must have a version
+  assert(codeName)      -- Code must have a name
+  assert(dataStoreName) -- Code must have the relative data store name
 end
 
 -- Everything to do with communication
@@ -515,7 +516,7 @@ do -- Object hierarchy (in do for easy collapse)
   
   -- See above for object hierarchy tree description
   Object = {
-    __type = "object", -- This is a type
+    __type = "object", -- This is a type (duh)
     __name = "[Object:( Inherited]", -- Indicated inherited because Object is not considered static
     creation = {
       raw = "Inherited from Object :(", -- Will contain the raw time given by os.time() (see Creation below)
@@ -549,6 +550,8 @@ do -- Object hierarchy (in do for easy collapse)
         print("Debug message logged: ", m, e)
       end
       
+      self.Log = rawget(self, "Log") or {} -- Ensures 'unique' log for each instance
+      assert(self.Log, "table", "self.Log caught not being a table :( in " .. cc .. " in " .. fc .. ";")
       table.insert(self.Log, {type = t, message = m, extra = e})
     end,
     Creation = function(self)
@@ -599,11 +602,10 @@ do -- Object hierarchy (in do for easy collapse)
     __tostring = tostringGen("=> ", "===", ","),
     __default = function(self)
       local fc = "Object/__default"
-      self = pm({self}, {"table"}, {"self"}, {cc, fc})
-      self:log{"function", fc, cc}
+      self, sig = pm({self}, {"table"}, {"self"}, {cc, fc})
+      self:log{"function", fc, cc, sig}
       return {
         creation = self:Creation(),
-        Log = self:log{"function", fc, cc}
       }
     end,
     __concat = function(a, b)
@@ -622,6 +624,7 @@ do -- Object hierarchy (in do for easy collapse)
   Server = Object:New{ -- Parent of all server related objects NOTE: ONLY EXISTS ON LOCAL SERVER
     __type = "server",
     __name = "[server inherited]",
+    _RuntimeHandler = RUNTIME, -- Reference to global variable defined in cc = "object implementation"
     __default = function(self)
       local fc = "Server/__default"
       self = pt(self, "server", "self passed to " .. fc .. " in " .. cc .. " not type table")
@@ -631,6 +634,8 @@ do -- Object hierarchy (in do for easy collapse)
       end
       r.__type = "serverobject inherited"
       r.__name = "[server object :( inherited]"
+
+      Server._RuntimeHandler:queueForInspection(r) -- Queues this for potential triger functions like 'instinate' or 'terminate' that need to be handled by the local RuntimeHandler (unique to server objects only)
       return r
     end,
   }
@@ -841,27 +846,31 @@ do -- Object hierarchy (in do for easy collapse)
       if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
         r = getmetatable(self).__default(self) -- Handle inherited __default
       end
-      r.perFrame = {}
+      r.perStep = {}
       r.start = {}
       r.terminate = {}
 
-      r.subscribeFrame = function(self, obj)
-        fc = "RuntimeHandler/__default/subscribeFrame"
+      r.subscribeStep = function(self, obj)
+        fc = "RuntimeHandler/__default/subscribeStep"
         self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
         self:log{"function", fc, cc, sig}
         table.insert(r.perFrame, obj)
+        self:log{"debug", "Just subscribed an object to step RUNTIME permissions", obj, fc, cc, sig}
+        return obj
       end
       r.subscribeStart = function(self, obj)
-        fc = "RuntimeHandler/__default/subscribeFrame"
+        fc = "RuntimeHandler/__default/subscribeStart"
         self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
         self:log{"function", fc, cc, sig}
         table.insert(r.perFrame, obj)
+        return obj
       end
       r.subscribeTerminate = function(self, obj)
         fc = "RuntimeHandler/__default/subscribeTerminate"
         self, sig = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
         self:log{"function", fc, cc, sig}
         table.insert(r.perFrame, obj)
+        return obj
       end
 
       r.executeStep = function(self) -- Called every 'step' > 
@@ -907,12 +916,32 @@ cc = "object implementation"
 local RUNTIME = RuntimeHandler:New{
   __type = "RuntimeHandler",
   __name = "[Runtime Handler]",
+  queuedForInspection = {},
+  queueForInspection = function(self, objRef)
+    fc = "RUNTIME/queueForInspection"
+    self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
+    self:log{"function", fc, cc, sig}
+    table.insert(self.queuedForInspection, objRef)
+  end,
+  inspectQueued = function(self)
+    fc = "RUNTIME/inspectQueued"
+    self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
+    self:log{"function", fc, cc, sig}
+    for k, v in pairs(self.queuedForInspection) do
+      if v.instinate then self:subscribeStart(v) end
+      if v.terminate then self:subscribeTerminate(v) end
+      if v.step then self:subscribeStep(v) end
+    end
+    return
+  end,    
 }
 
 local cashObj = CashedData:New{
   __type = "cashobj",
   __name = "[cashObj :( inherited]",
 }
+
+cc = "object implementation/communication"
 -- Represents the data store local to this game (and script, see 'dataStoreName' definition in first cc section)
 local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
   __type = "CommunicationChannel",
@@ -1015,7 +1044,6 @@ local localDataStore = CommunicationChannel:New{ -- Will yeild as per usage
       return success, value, errorMessage
     end
   end,
-
 }
 
 local MultiServerCommunication = Communication:New{ -- Allows regulated communication between INFINITE other servers in same game
@@ -1023,6 +1051,8 @@ local MultiServerCommunication = Communication:New{ -- Allows regulated communic
   __name = "[MultiServerCommunication]",
   channels = {
     L_DS = localDataStore, -- Local _ Data Store
+    L_DSPlayer = nil,
+    L_DSServerManagement = nil,
     C_BossID = nil, -- Will add dynamic reference to channels.L_DS:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
     C_ToManyBosses = nil, -- Cross server _ ...
     C_Index = nil,
@@ -1030,36 +1060,45 @@ local MultiServerCommunication = Communication:New{ -- Allows regulated communic
   },
   __default = function(self) error("DO NOT ATTEMPT to use MultiServerCommunication or other instinated objects as parents", 1) end,
   instinate = function(self)
-    self.channels.C_BossID = localDataStore:NewIndexed("Player/ServerManagement/BOSS SERVER ID")
+    fc = "MultiServerCommunication/instinate"
+    self, sig = pm({self}, {"MultiServerCommunication"}, {"self"}, {fc, cc})
+    self.channels.L_DSPlayer = self.channels.L_DS:NewIndexed("Player/") -- Is really unnecessary to have this folder but hey why not?
+    self.channels.L_DSServerManagement = self.channels.L_DSPlayer:NewIndexed("ServerManagement/")
+    self.channels.C_BossID = self.channels.C_BossID:NewIndexed("ServerManagement/BOSS SERVER ID")
   end,
+
 }
 
 --------------------------------------------------------------
 
+cc = ""
+
+--------------------------------------------------------------
+
+cc = ""
+
+--------------------------------------------------------------
+cc = ""
+
+--------------------------------------------------------------
+cc = ""
+
+--------------------------------------------------------------
+
 cc = "runtime section" -- 'Activates' and sets up indefinite running of program with high level objects
--- And when I say high, I mean *HIGH* objects, like they have been getting at the good stuff for a while now and are really gone good now
+-- And when I say high, I mean *HIGH* objects, like they have been getting at the good stuff for a while now and are really gone good
 
-RUNTIME -- Stuff
+if RUNTIME.inspectQueued then RUNTIME:inspectQueued() end -- Subscribes objects by inspecting queued references (typically added by Server.New)
+RUNTIME:InstinateStart()
 
---------------------------------------------------------------
+terminate = false
+game:BindToClose(function () terminate = true end) -- Sets terminate variable to true to indicate to program that server is shutting down :(
 
-cc = ""
+while not terminate do
+  RUNTIME()
+  wait(1) -- Gives time for program to rest
+end
 
---------------------------------------------------------------
-
-cc = ""
-
---------------------------------------------------------------
-cc = ""
-
---------------------------------------------------------------
-cc = ""
-
---------------------------------------------------------------
-
-
-
-
-
+-------------------------------------------------------------- Last section as runtime section by design stops all code below being executed
 
 -- EOF
