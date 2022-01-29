@@ -465,7 +465,7 @@ do -- Global defs (in do for easy collapse)
         if type(val) ~= "table" then -- If input '_table' is not a table then baseTS
           str = str .. baseTS(val)
         else
-          trace[val] = true
+          if type(val) == "table" then trace[val] = true end -- Stop infinite recursive calls
           for k, v in pairs(val) do
             str = str .. "\n" .. indent .. k .. " = " -- Add new line + start
             if trace[v] == nil then
@@ -574,14 +574,22 @@ do -- Object hierarchy (in do for easy collapse)
     New = function(self, ...) -- One intended arg: Object constructor used Object:New{abc = 123}
       local fc = "Object/New"
       local self, sig = pt(self, "table", "self passed to New in Object is not type table ??" .. "; In: " .. cc .. "/" .. fc)
-      local default = pt(self.__default, "function", "__default contained in passed self is not type function (maybe nil)" .. "; In: " .. cc .. "/" .. fc)
-      local default = default(self)
+      local default = {} -- THE reference to the final object
+      local function getDefault (_obj)
+        local _obj, obj = _obj, getmetatable(_obj)
+        if validMetatable(_obj) then
+          getDefault(obj) -- Runs __default from lowest to highest object recurssively
+          if type(rawget(obj, "__default")) == "function" then
+            forceContain(default, obj:__default()) -- Runs default on metatable
+          end
+        end
+        return default
+      end
       -- Time of creation calculated here (if __default() is applicable to that nature)
-      local args = forceContain({...}, default, 1)
+      local args = forceContain({...}, getDefault(self), 1)
       -- Default param to automatically add an absolute instination time of Object instance for debugging (to index [1], =o)
       local o = args[1] or default -- Contains default creation property guarenteed, assert below for debugging
       pt(o, "table", "For some reason o is not a table ??" .. "; In: " .. cc .. "/" .. fc, 1)
-      -- assert(o["creation"]) -- (Absolute) debugging :| should remove if ability to override Creation() is possible/allowed
       local mt = self -- Must have __index pointing to self (next line, implied)
       -- self.__index = self -- Unnecessary but implied/assumed (done absolute below Object definition)
       -- Below for loop copies from the metatable of mt to mt such that o's metatable contains the correct metamethods (__index useless because rawget in lua source code)
@@ -595,8 +603,7 @@ do -- Object hierarchy (in do for easy collapse)
       o.__index = o -- Makes sure o starts with correct __index on self, Object is exception so done absolute (below definition)
       setmetatable(o, mt) -- o now has metatable with __index pointing such that it looks to self (Object) as 'parent' inherited
       
-      print(tostring(self.__name) .. " creating :New() object with name " .. tostring(o.__name))
-      self:log{"function", fc, cc}
+      self:log{"function", tostring(self.__name) .. " creating :New() object with name " .. tostring(o.__name), fc, cc}
       return o -- o will now reference Object (or self if this param is inherited/changed) in __index
       -- A question ANSWERED by me:
       -- Say a parent object had a property that was 'static', as in it was defined by it as was UNIQUE to that object and NOT its children
@@ -635,9 +642,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Server/__default"
       self = pt(self, "server", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self)
-      end
+
       r.__type = "serverobject inherited"
       r.__name = "[server object :( inherited]"
 
@@ -655,9 +660,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "RuntimeHandler/__default"
       self = pt(self, "runtimehandler", "self passed to " .. fc .. " in " .. cc .. " not type runtimehandler")
       local r = {}
-      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self) -- Handle inherited __default
-      end
+
       r.perStep = {}
       r.start = {}
       r.terminate = {}
@@ -750,9 +753,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Communication/__default"
       self = pt(self, "server", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self)
-      end
+
       r.__type = "communicationobject inherited"
       r.__name = "[communication object :( inherited]"
       return r
@@ -777,9 +778,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "AsyncObject/__default"
       self = pt(self, "asyncobject", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self)
-      end
+
       r.__type = "asyncobject inherited"
       r.__name = "[async object :( inherited]"
       r.requestType = self.requestTypes["<default>"]
@@ -796,9 +795,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "AsyncHandler/__default"
       self = pt(self, "asynchandler", "self passed to " .. fc .. " in " .. cc .. " not type asynchandler")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self)
-      end
+
       r.__type = "asynchandler inherited"
       r.__name = "[async handler :( inherited]"
       r.asyncRequests = {}
@@ -807,6 +804,7 @@ do -- Object hierarchy (in do for easy collapse)
         self, requestObj, sig = pm({self, requestObj}, {"table", "asyncobject"}, {"self", "requestObj"}, {fc, cc})
         self:log{"function", fc, cc, sig}
         table.push(self.asyncRequests, requestObj)
+        return requestObj
       end
       r.typeMapping = { -- Maps preset type names (e.g. <client>) to the ABSOLUTE FUNCTION NAME e.g. handleClient  > 
         ["<default>"] = "handleDefault",
@@ -855,9 +853,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "CommunicationChannel/__default"
       self = pt(self, "table", "self passed to " .. fc .. " in " .. cc .. " not type table")
       local r = {}
-      if (validMetatable(self)) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self)
-      end
+
       r.__type = "communicationchannel inherited"
       r.__name = "[communication channel :( inherited]"
       
@@ -891,9 +887,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Communication/__default"
       self = pt(self, "communication", "self passed to " .. fc .. " in " .. cc .. " not type communication")
       local r = {}
-      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self) -- Handle inherited __default
-      end
+
       r.__type = "communication inherited"
       r.__name = "[communication :( inherited]" -- Add default name to all children
       r.channels = {}
@@ -919,9 +913,7 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "CashedData/__default"
       self = pt(self, "casheddata", "self passed to " .. fc .. " in " .. cc .. " not type communication")
       local r = {}
-      if validMetatable(self) and (type(getmetatable(self).__default) == "function") then
-        r = getmetatable(self).__default(self) -- Handle inherited __default
-      end
+
       r.instinated = os.time()
 
       r.synced = nil -- Override as per t/f
@@ -1114,6 +1106,9 @@ while not terminate do
   wait(1) -- Gives time for program to rest
 end
 
--------------------------------------------------------------- Last section as runtime section by design stops all code below being executed
+--------------------------------------------------------------
+--- Last section as runtime section by design stops all code below being executed (until terminated)
 
+
+-- WAY to many lines for a normal person
 -- EOF
