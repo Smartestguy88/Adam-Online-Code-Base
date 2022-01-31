@@ -395,6 +395,14 @@ do -- Global defs (in do for easy collapse)
       if extra[1]["pm added:"] ~= nil then warn("Overriding 'pm added:' optional parameter provided to pm", debug.traceback()) end
       extra[1]["pm added:"] = {}
     end
+    if type(contextInfo[1]) ~= "string" then
+      if contextInfo[1] ~= nil then warn("Overriding contextInfo[1] optional parameter provided to pm", debug.traceback(), "from ::", type(contextInfo[1])) end
+      contextInfo[1] = "Unstated Function"
+    end
+    if type(contextInfo[2]) ~= "string" then
+      if contextInfo[2] ~= nil then warn("Overriding contextInfo[2] optional parameter provided to pm", debug.traceback(), "from ::", type(contextInfo[2])) end
+      contextInfo[2] = "Unstated Context"
+    end
     local r = {}
     local n = 0
     for i, v in pairs(params) do
@@ -423,21 +431,54 @@ do -- Global defs (in do for easy collapse)
     return unpack(r, 1, n)
   end
 
+  printT = function(t, rt, trace)
+    if trace == nil then trace = {} end
+    trace[t] = true
+    assert(type(t) == "table")
+    local str = ""
+    if not rt then
+      if t.__name then
+        str = "printT name:: " .. tostring(t.__name) .. " { "
+      else
+        str = "printT :: { "
+      end
+    end
+    for k, v in pairs(t) do
+      local _k, _v = k, rawget(t, k)
+      local blacklisted = {"Log", "__type", "__index"} -- Don't print properties of this key
+      if not blacklisted[_k] and not trace[_v] then
+        if type (_v) == "table" then
+          str = str .. string.gsub(printT(_v, true, trace), "\n", "\n==")
+          trace[_v] = true
+        else
+          str = str .. "\n=>" .. _k .. "::" .. tostring(_v) .. ";"
+        end
+      end
+    end
+    if validMetatable(t) then str = str .. "\n>>" .. "**meta**::" .. string.gsub(printT(getmetatable(t), true, trace), "\n", "\n>>") end
+    str = str .. "\n}"
+    if not rt then print(str) end
+    return str
+  end
+
   cc = "global defs/string"
+  printLogs = false
   tostringGen = function(indent, indentation, suffix, specifications) -- Generates a tostring function according to specifications
     local fc = "tostringGen"
-    local indent, indentation, suffix, specifications = pm({
-      indent or "=> ", indentation or "===", suffix or ",", specifications or {
-        wrapper = function(self, _tostring)
-          local self = pt(self or {}, "table", "self passed to wrapper / tostringGen is not type table")
-          local _tostring = pt(_tostring, "function", "_tostring passed to wrapper / tostringGen is not type function")
-          local name = self.__name or "<Unspecified Name>"
-          local name = tostring(name)
-          return "(' " .. name .. " '):tostring() = {" .. _tostring(self, _tostring) .. "\n}"
-        end,
-        cyclic = "** Cyclic table reference detected! **",
-        metatable = "** Metatable print **",
-      }},
+    local indent, indentation, suffix, specifications = pm(
+      {
+        indent or "=> ", indentation or "===", suffix or ",", specifications or {
+          wrapper = function(self, _tostring)
+            local self = pt(self or {}, "table", "self passed to wrapper / tostringGen is not type table")
+            local _tostring = pt(_tostring, "function", "_tostring passed to wrapper / tostringGen is not type function")
+            local name = self.__name or "<Unspecified Name>"
+            local name = tostring(name)
+            return "(' " .. name .. " '):tostring() = {" .. _tostring(self, _tostring) .. "\n}"
+          end,
+          cyclic = "** Cyclic table reference detected! Info: !info! **",
+          metatable = "** Metatable print **",
+        }
+      },
       {"string", "string", "string", "table"},
       {"indent", "indentation", "suffix", "specifications"},
       {cc, fc}
@@ -467,17 +508,19 @@ do -- Global defs (in do for easy collapse)
         else
           if type(val) == "table" then trace[val] = true end -- Stop infinite recursive calls
           for k, v in pairs(val) do
-            str = str .. "\n" .. indent .. k .. " = " -- Add new line + start
-            if trace[v] == nil then
-              if (type(v) ~= "table") or (validMetatable(v) and (getmetatable(v).__tostring)) then
-                str = str .. baseTS(v)
-              else -- Use itself to print : recurssive function
-                str = str .. "{" .. string.gsub(_tostring(v, _tostring), "\n", "\n" .. indentation) .. "\n" .. indent .. "}"
+            if k ~= "Log" or printLogs then -- Ensure Logs aren't printed unless printLogs evaluates to true
+              str = str .. "\n" .. indent .. k .. " = " -- Add new line + start
+              if trace[v] == nil then
+                if (type(v) ~= "table") or (validMetatable(v) and (getmetatable(v).__tostring)) then
+                  str = str .. baseTS(v)
+                else -- Use itself to print : recurssive function
+                  str = str .. "{" .. string.gsub(_tostring(v, _tostring), "\n", "\n" .. indentation) .. "\n" .. indent .. "}"
+                end
+              else str = str .. string.gsub(cyclic, "!info!", "Name::" .. v.__name) end
+              str = str .. suffix -- Add suffix
+              if type(v) == "table" and (getmetatable(v) and (type(getmetatable(v)) == "table")) then -- Print fully formatted metatable of v if v has one
+                str = str .. "\n" .. indent .. metatable .. " <=> {" .. string.gsub(_tostring(getmetatable(v)), "\n", "\n" .. indentation) .. "\n" .. indent .. "}" .. suffix
               end
-            else str = str .. cyclic end
-            str = str .. suffix -- Add suffix
-            if type(v) == "table" and (getmetatable(v) and (type(getmetatable(v)) == "table")) then -- Print fully formatted metatable of v if v has one
-              str = str .. "\n" .. indent .. metatable .. " <=> {" .. string.gsub(_tostring(getmetatable(v)), "\n", "\n" .. indentation) .. "\n" .. indent .. "}" .. suffix
             end
           end
         end
@@ -488,12 +531,12 @@ do -- Global defs (in do for easy collapse)
     end
     return func
   end
-  defaultToString = tostringGen("=> ", "===", ",") -- The default tostring method for printing to the console (raw)
+  defaultToString = tostringGen("> ", "==", ",") -- The default tostring method for printing to the console (raw)
 
   cc = "global defs/table manipulation"
-  forceContain = function(obj, contains, index) -- Used to easily force obj into a default pattern (no overriting) with optional index for limiting affected entry of obj
+  forceContain = function(obj, contains, index, override) -- Used to easily force obj into a default pattern (no overriting) with optional index for limiting affected entry of obj
     local fc = "forceContain"
-    local obj, contains = pm({obj, contains}, {"table", "table"}, {"obj", "contains"}, {cc, fc})
+    local obj, contains, override, _ = pm({obj, contains, override}, {"table", "table"}, {"obj", "contains"}, {cc, fc})
     local o
     if index ~= nil then
       o = obj[index]
@@ -501,7 +544,7 @@ do -- Global defs (in do for easy collapse)
       o = obj
     end
     for k, v in pairs(contains) do
-      if o[k] == nil then o[k] = v end
+      if override or o[k] == nil then o[k] = v end -- If overriding allowed then force o to conform to o[k]=v
     end
     return obj
   end
@@ -575,18 +618,17 @@ do -- Object hierarchy (in do for easy collapse)
       local fc = "Object/New"
       local self, sig = pt(self, "table", "self passed to New in Object is not type table ??" .. "; In: " .. cc .. "/" .. fc)
       local default = {} -- THE reference to the final object
-      local function getDefault (_obj)
-        local _obj, obj = _obj, getmetatable(_obj)
-        if validMetatable(_obj) then
-          getDefault(obj) -- Runs __default from lowest to highest object recurssively
-          if type(rawget(obj, "__default")) == "function" then
-            forceContain(default, obj:__default()) -- Runs default on metatable
-          end
+      local function getDefault (obj)
+        if validMetatable(obj) then
+          getDefault(getmetatable(obj)) -- Runs __default from lowest to highest object recurssively
+        end
+        if type(rawget(obj, "__default")) == "function" then
+          forceContain(default, obj:__default(), nil, true) -- Runs default on metatable
         end
         return default
       end
       -- Time of creation calculated here (if __default() is applicable to that nature)
-      local args = forceContain({...}, getDefault(self), 1)
+      local args = forceContain({...}, getDefault(self), 1, false)
       -- Default param to automatically add an absolute instination time of Object instance for debugging (to index [1], =o)
       local o = args[1] or default -- Contains default creation property guarenteed, assert below for debugging
       pt(o, "table", "For some reason o is not a table ??" .. "; In: " .. cc .. "/" .. fc, 1)
@@ -615,7 +657,7 @@ do -- Object hierarchy (in do for easy collapse)
     end,
 
     -- Below are functions used as part of the Objects metatable (because Object considered non-static it has no metatable)
-    __tostring = tostringGen("=> ", "===", ","),
+    __tostring = tostringGen("> ", "==", ","),
     __default = function(self)
       local fc = "Object/__default"
       self, sig = pm({self}, {"table"}, {"self"}, {cc, fc})
@@ -624,11 +666,13 @@ do -- Object hierarchy (in do for easy collapse)
         creation = self:Creation(),
       }
     end,
-    __concat = function(a, b)
-      local fc = "Object/__concat"
-      local a, b = pm({a, b}, {}, {"a", "p"}, {cc, fc})
-      return tostring(a) .. tostring(b)
-    end,
+    --[[ Will cause infinite stack errors as the tostring function uses __concat a bit
+      __concat = function(a, b) -- Is the cause for a few infinte stack errors :)
+        local fc = "Object/__concat"
+        --local a, b = pm({a, b}, {}, {"a", "p"}, {cc, fc}) -- May cause infinite stack error
+        return tostring(a) .. tostring(b)
+      end,
+    --]]
   }
   Object.__index = Object -- Absolute object reference
   
@@ -647,7 +691,7 @@ do -- Object hierarchy (in do for easy collapse)
       r.__name = "[server object :( inherited]"
 
       -- Queues this for potential triger functions like 'instinate' or 'terminate' that need to be handled by the local RuntimeHandler (if threads)
-      if r.threads then RUNTIME:queueForInspection(r) end
+      if r.threads then self._RuntimeHandler:queueForInspection(r) end
       return r
     end,
   }
@@ -721,29 +765,6 @@ do -- Object hierarchy (in do for easy collapse)
       end
       return r
     end,
-  }
-  RUNTIME = RuntimeHandler:New{ -- IMPORTANT local RuntimeHandler ABSOLUTE GLOBAL REFERENCES EXIST > 
-    __type = "RuntimeHandler",
-    __name = "[Runtime Handler]",
-    threads = false,
-    queuedForInspection = {},
-    queueForInspection = function(self, objRef)
-      fc = "RUNTIME/queueForInspection"
-      self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
-      self:log{"function", fc, cc, sig}
-      table.insert(self.queuedForInspection, objRef)
-    end,
-    inspectQueued = function(self)
-      fc = "RUNTIME/inspectQueued"
-      self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
-      self:log{"function", fc, cc, sig}
-      for k, v in pairs(self.queuedForInspection) do
-        if v.instinate then self:subscribeStart(v) end
-        if v.terminate then self:subscribeTerminate(v) end
-        if v.step then self:subscribeStep(v) end
-      end
-      return
-    end,    
   }
 
   CommunicationObject = Server:New{ -- Parent of all communication related objects
@@ -943,6 +964,30 @@ end
 
 cc = "object implementation"
 
+RUNTIME = RuntimeHandler:New{ -- IMPORTANT RuntimeHandler ABSOLUTE GLOBAL REFERENCES EXIST > 
+    __type = "RuntimeHandler",
+    __name = "[Runtime Handler]",
+    threads = false,
+    queuedForInspection = {},
+    queueForInspection = function(self, objRef)
+      fc = "RUNTIME/queueForInspection"
+      self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
+      self:log{"function", fc, cc, sig}
+      table.insert(self.queuedForInspection, objRef)
+    end,
+    inspectQueued = function(self)
+      fc = "RUNTIME/inspectQueued"
+      self, sig = pt(self, "RuntimeHandler", "self passed to " .. fc .. " in " .. cc .. " not type RuntimeHandler")
+      self:log{"function", fc, cc, sig}
+      for k, v in pairs(self.queuedForInspection) do
+        if v.instinate then self:subscribeStart(v) end
+        if v.terminate then self:subscribeTerminate(v) end
+        if v.step then self:subscribeStep(v) end
+      end
+      return
+    end,    
+  }
+
 cashObj = CashedData:New{
   __type = "cashobj",
   __name = "[cashObj :( inherited]",
@@ -1080,6 +1125,13 @@ MultiServerCommunication = Communication:New{ -- Allows regulated communication 
 
 cc = ""
 
+a = Object:New{a = true}
+b = a:New{b = true}
+c = b:New{c = true}
+d = c:New{d = true}
+
+printT(a)
+
 --------------------------------------------------------------
 
 cc = ""
@@ -1095,8 +1147,13 @@ cc = ""
 cc = "runtime section" -- 'Activates' and sets up indefinite running of program with high level objects
 -- And when I say high, I mean *HIGH* objects, like they have been getting at the good stuff for a while now and are really gone good
 
+--[[
+print(RuntimeHandler)
+print(RUNTIME)
+print(RUNTIME.instinateStart)
+
 if RUNTIME.inspectQueued then RUNTIME:inspectQueued() end -- Subscribes objects by inspecting queued references (typically added by Server.New)
-RUNTIME:InstinateStart()
+--RUNTIME:instinateStart()
 
 terminate = false
 game:BindToClose(function () terminate = true end) -- Sets terminate variable to true to indicate to program that server is shutting down :(
@@ -1105,6 +1162,8 @@ while not terminate do
   RUNTIME()
   wait(1) -- Gives time for program to rest
 end
+
+--]]
 
 --------------------------------------------------------------
 --- Last section as runtime section by design stops all code below being executed (until terminated)
