@@ -431,105 +431,19 @@ do -- Global defs (in do for easy collapse)
     return unpack(r, 1, n)
   end
 
-  printT = function(t, rt, trace)
-    if trace == nil then trace = {} end
-    trace[t] = true
-    assert(type(t) == "table")
-    local str = ""
-    if not rt then
-      if t.__name then
-        str = "printT name:: " .. tostring(t.__name) .. " { "
-      else
-        str = "printT :: { "
-      end
-    end
-    for k, v in pairs(t) do
-      local _k, _v = k, rawget(t, k)
-      local blacklisted = {"Log", "__type", "__index"} -- Don't print properties of this key
-      if not blacklisted[_k] and not trace[_v] then
-        if type (_v) == "table" then
-          str = str .. string.gsub(printT(_v, true, trace), "\n", "\n==")
-          trace[_v] = true
-        else
-          str = str .. "\n=>" .. _k .. "::" .. tostring(_v) .. ";"
-        end
-      end
-    end
-    if validMetatable(t) then str = str .. "\n>>" .. "**meta**::" .. string.gsub(printT(getmetatable(t), true, trace), "\n", "\n>>") end
-    str = str .. "\n}"
-    if not rt then print(str) end
-    return str
-  end
-
   cc = "global defs/string"
   printLogs = false
-  tostringGen = function(indent, indentation, suffix, specifications) -- Generates a tostring function according to specifications
+  tostringGen = function(specifications) -- Generates a tostring function according to specifications
     local fc = "tostringGen"
-    local indent, indentation, suffix, specifications = pm(
-      {
-        indent or "=> ", indentation or "===", suffix or ",", specifications or {
-          wrapper = function(self, _tostring)
-            local self = pt(self or {}, "table", "self passed to wrapper / tostringGen is not type table")
-            local _tostring = pt(_tostring, "function", "_tostring passed to wrapper / tostringGen is not type function")
-            local name = self.__name or "<Unspecified Name>"
-            local name = tostring(name)
-            return "(' " .. name .. " '):tostring() = {" .. _tostring(self, _tostring) .. "\n}"
-          end,
-          cyclic = "** Cyclic table reference detected! Info: !info! **",
-          metatable = "** Metatable print **",
-        }
-      },
-      {"string", "string", "string", "table"},
-      {"indent", "indentation", "suffix", "specifications"},
-      {cc, fc}
-    )
-    assert(string.len(indent) == string.len(indentation), "string.len indent is not = to string.len indentation in tostringGen", 2)
-    local func = function(self) -- Assuming an type(Object) or is(self, Object) parameter passed for __name
-      local fc = "tostringGen/func"
-      local self, wrapper, cyclic, metatable = pm(
-        {self, specifications.wrapper, specifications.cyclic, specifications.metatable},
-        {"table", "function", "string", "string"},
-        {"self", "wrapper", "cyclic", "metatable"},
-        {cc, fc}
-      )
-      local trace = {}
-      local function _tostring(val)
-        local fc = "tostringGen/func/_tostring"
-        local str = ""
-        local baseTS = function(input)
-          local str = ""
-          if type(input) == "string" then
-            str = str .. "\"" .. tostring(input) .. "\""
-          else str = str .. string.gsub(tostring(input), "\n", "\n" .. indentation) end -- Basic tostring call on non-table typed objects iterated through
-          return str
-        end
-        if type(val) ~= "table" then -- If input '_table' is not a table then baseTS
-          str = str .. baseTS(val)
-        else
-          if type(val) == "table" then trace[val] = true end -- Stop infinite recursive calls
-          for k, v in pairs(val) do
-            if k ~= "Log" or printLogs then -- Ensure Logs aren't printed unless printLogs evaluates to true
-              str = str .. "\n" .. indent .. k .. " = " -- Add new line + start
-              if trace[v] == nil then
-                if (type(v) ~= "table") or (validMetatable(v) and (getmetatable(v).__tostring)) then
-                  str = str .. baseTS(v)
-                else -- Use itself to print : recurssive function
-                  str = str .. "{" .. string.gsub(_tostring(v, _tostring), "\n", "\n" .. indentation) .. "\n" .. indent .. "}"
-                end
-              else str = str .. string.gsub(cyclic, "!info!", "Name::" .. v.__name) end
-              str = str .. suffix -- Add suffix
-              if type(v) == "table" and (getmetatable(v) and (type(getmetatable(v)) == "table")) then -- Print fully formatted metatable of v if v has one
-                str = str .. "\n" .. indent .. metatable .. " <=> {" .. string.gsub(_tostring(getmetatable(v)), "\n", "\n" .. indentation) .. "\n" .. indent .. "}" .. suffix
-              end
-            end
-          end
-        end
-        return str
-      end
-      local _wrapper = pt(wrapper(self, _tostring), "string", "wrapper passed to specifications in tostringGen return not type string")
-      return _wrapper
-    end
-    return func
+    assert(type(specifications) == "table")
+    local indentations, lineFormatting, beginning = specifications.indentations, specifications.lineFormatting, specifications.beginning
+    assert(type(indentations) == "table")
+    assert(type(lineFormatting) == "table")
+    assert(type(beginning) == "table")
+    local firstIndent, noramlIndent, metaIndent = indentations.first, indentations.normal, indentations.meta
+    local suffix, blacklist = lineFormatting.suffix, lineFormatting.blacklist
+    local wrapper = beginning.wrapper
+    local 
   end
   defaultToString = tostringGen("> ", "==", ",") -- The default tostring method for printing to the console (raw)
 
